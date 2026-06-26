@@ -1,0 +1,7 @@
+{
+  "name": "hap-knowledge",
+  "description": "明道云 HAP 私有部署知识技能集（自动同步自 okion-92/hap-private-knowledge 的 skills/）",
+  "author": { "name": "okion-92" },
+  "repository": "https://github.com/okion-92/okion-cc-plugins",
+  "license": "MIT"
+}

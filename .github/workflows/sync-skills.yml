@@ -1,0 +1,62 @@
+name: sync-skills
+# 每 4 小时把源仓库 hap-private-knowledge/skills 镜像进 plugins/hap-knowledge/skills。
+# 只动「源仓库管理的 skill」（记在 .synced-skills 里）——手动加的 skill 永不受影响。
+on:
+  schedule:
+    - cron: '0 */4 * * *'   # 每 4 小时（UTC）。源更新后最长 ~4h 同步到
+  workflow_dispatch: {}       # 手动触发按钮，立即同步
+
+permissions:
+  contents: write
+
+env:
+  SOURCE_REPO: https://github.com/okion-92/hap-private-knowledge.git
+  PLUGIN_DIR: plugins/hap-knowledge
+  # 源若改私有，SOURCE_REPO 换成带 PAT 的地址：https://x-access-token:${{ secrets.SRC_PAT }}@github.com/...
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mirror source-managed skills
+        run: |
+          set -euo pipefail
+          git clone --depth 1 "$SOURCE_REPO" src
+          cd "$PLUGIN_DIR"
+          mkdir -p skills
+          touch .synced-skills
+
+          # 1) 源里已删除的「曾同步过的」skill → 删掉（不碰手动加的）
+          while IFS= read -r name; do
+            [ -z "$name" ] && continue
+            if [ ! -d "$GITHUB_WORKSPACE/src/skills/$name" ]; then
+              echo "remove (gone upstream): $name"
+              rm -rf "skills/$name"
+            fi
+          done < .synced-skills
+
+          # 2) 源里现有的每个 skill → 目录级镜像（删旧再整拷，连带处理内部文件增删）
+          : > .synced-skills.new
+          for d in "$GITHUB_WORKSPACE"/src/skills/*/; do
+            name="$(basename "$d")"
+            rm -rf "skills/$name"
+            cp -r "$d" "skills/$name"
+            echo "$name" >> .synced-skills.new
+          done
+          sort -u .synced-skills.new -o .synced-skills
+          rm -f .synced-skills.new
+          rm -rf "$GITHUB_WORKSPACE/src"
+
+      - name: Commit & push if changed
+        run: |
+          git config user.name "skills-sync-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$PLUGIN_DIR/skills" "$PLUGIN_DIR/.synced-skills"
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "sync skills from hap-private-knowledge"
+            git push
+          fi

@@ -1,0 +1,12 @@
+{
+  "name": "okion-cc-plugins",
+  "owner": { "name": "okion-92" },
+  "description": "okion 的 Claude Code 插件市场",
+  "plugins": [
+    {
+      "name": "hap-knowledge",
+      "source": "./plugins/hap-knowledge",
+      "description": "明道云 HAP 私有部署知识技能集（部署排障、升级等），内容自动同步自 hap-private-knowledge。"
+    }
+  ]
+}
