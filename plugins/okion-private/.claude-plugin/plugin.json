@@ -1,0 +1,7 @@
+{
+  "name": "okion-private",
+  "description": "okion 自用/私有技能集（手动维护）",
+  "author": { "name": "okion-92" },
+  "repository": "https://github.com/okion-92/okion-cc-plugins",
+  "license": "MIT"
+}

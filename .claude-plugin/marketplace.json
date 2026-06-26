@@ -7,6 +7,11 @@
       "name": "hap-knowledge",
       "source": "./plugins/hap-knowledge",
       "description": "明道云 HAP 私有部署知识技能集（部署排障、升级等），内容自动同步自 hap-private-knowledge。"
+    },
+    {
+      "name": "okion-private",
+      "source": "./plugins/okion-private",
+      "description": "okion 自用/私有技能集（手动维护）。"
     }
   ]
 }
