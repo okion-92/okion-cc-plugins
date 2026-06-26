@@ -10,9 +10,9 @@ permissions:
   contents: write
 
 env:
-  SOURCE_REPO: https://github.com/okion-92/hap-private-knowledge.git
+  # 源仓库私有：用 SRC_PAT 密钥鉴权 clone（密钥在仓库 Settings→Secrets 里，日志不泄露）
+  SOURCE_REPO: https://x-access-token:${{ secrets.SRC_PAT }}@github.com/okion-92/hap-private-knowledge.git
   PLUGIN_DIR: plugins/hap-knowledge
-  # 源若改私有，SOURCE_REPO 换成带 PAT 的地址：https://x-access-token:${{ secrets.SRC_PAT }}@github.com/...
 
 jobs:
   sync:
