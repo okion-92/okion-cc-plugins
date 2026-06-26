@@ -1,0 +1,7 @@
+interface:
+  display_name: "Hap Upgrade"
+  short_description: "明道云 HAP 私有部署升级专属 skill。"
+  default_prompt: "Use $hap-upgrade to handle the request."
+
+policy:
+  allow_implicit_invocation: true

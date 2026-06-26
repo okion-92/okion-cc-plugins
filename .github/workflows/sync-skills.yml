@@ -49,11 +49,14 @@ jobs:
           rm -f .synced-skills.new
           rm -rf "$GITHUB_WORKSPACE/src"
 
+      - name: Generate Codex-compatible files (openai.yaml + AGENTS.md)
+        run: node scripts/gen-codex.mjs
+
       - name: Commit & push if changed
         run: |
           git config user.name "skills-sync-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "$PLUGIN_DIR/skills" "$PLUGIN_DIR/.synced-skills"
+          git add -A
           if git diff --cached --quiet; then
             echo "no changes"
           else

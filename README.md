@@ -61,6 +61,24 @@ okion-cc-plugins/
 - **给 okion-private 加技能**:`plugins/okion-private/skills/<技能名>/SKILL.md`(+ 可选 `data/`、`references/`),提交即可。
 - **加一个全新插件**:`plugins/<插件名>/` 下放 `.claude-plugin/plugin.json` + `skills/`,再到 `marketplace.json` 的 `plugins` 数组加一项 `{ "name": "<插件名>", "source": "./plugins/<插件名>" }`。
 
+> 提交后无需手动做 Codex 兼容——见下。
+
+## Codex 兼容(自动)
+
+每个 skill 除了 Claude Code 用的 `SKILL.md`,还自动带两份 Codex 兼容文件,由 [scripts/gen-codex.mjs](scripts/gen-codex.mjs) 从 `SKILL.md` 的 frontmatter 生成:
+
+- `agents/openai.yaml` — 描述符(display_name / short_description / default_prompt / policy)。**缺则补,已有的手工版不覆盖**。
+- `AGENTS.md` — 每个 skill 一份 + 每个插件根一份(列出该插件所有技能),Codex 在该目录下工作时自动读取。**每次按 SKILL.md 重生成**。
+
+两条触发,标准一致、全自动:
+
+| 场景 | 谁来生成 | 时延 |
+|---|---|---|
+| 同步来的 skill(hap-knowledge) | `sync-skills.yml` 镜像后跑生成,同一次提交 | 随同步,≤4h |
+| **手动**加的 skill(任意插件) | `codex-compat.yml` 在 push 到 `plugins/**` 时跑生成 | 立即(<1 分钟) |
+
+所以你以后手动往任何插件加 skill,**只写 `SKILL.md`、提交即可**,Codex 兼容文件会自动补齐,标准与同步来的完全一致。
+
 ---
 
 ## 维护:把 SRC_PAT 换成更安全的 fine-grained token(推荐)

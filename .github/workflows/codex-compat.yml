@@ -1,0 +1,31 @@
+name: codex-compat
+# 手动往 plugins/ 加/改 skill 后，立刻生成 Codex 兼容文件（openai.yaml + AGENTS.md）。
+# 与 sync-skills 共用同一个 scripts/gen-codex.mjs，标准一致。幂等：无变化不提交，不会循环。
+on:
+  push:
+    paths:
+      - 'plugins/**'
+      - 'scripts/gen-codex.mjs'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Codex-compatible files
+        run: node scripts/gen-codex.mjs
+      - name: Commit & push if changed
+        run: |
+          git config user.name "codex-compat-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "chore: generate Codex-compatible files"
+            git push
+          fi
