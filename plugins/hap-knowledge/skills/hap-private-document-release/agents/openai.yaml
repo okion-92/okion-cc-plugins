@@ -1,0 +1,7 @@
+interface:
+  display_name: "Hap Private Document Release"
+  short_description: "HAP Private Document 更新发布 SOP（标准流程）。"
+  default_prompt: "Use $hap-private-document-release to handle the request."
+
+policy:
+  allow_implicit_invocation: true
