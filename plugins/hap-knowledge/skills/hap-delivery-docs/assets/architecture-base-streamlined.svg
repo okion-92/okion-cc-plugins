@@ -1,0 +1,154 @@
+<svg width="100%" viewBox="0 0 760 1040" role="img" xmlns="http://www.w3.org/2000/svg" font-family="Noto Sans CJK SC, WenQuanYi Zen Hei, sans-serif">
+<!-- HAP 集群精简版架构图（示例基底）。6 节点扁平拓扑，单节点存储，1 主 1 从 K8s。
+     示例值：192.168.1.x / hap.domain.com。MinIO 9011 / File 9000（单节点）。
+     生成新图时按 params 参数与 templates/architecture.md 规则重绘 IP/节点。 -->
+<title>HAP 集群精简版部署架构</title>
+<desc>HAP 私有部署集群精简版：用户 → hap.domain.com → Nginx 单节点 → K8s 1主1从微服务 → 数据库单节点 / 中间件单节点。6 节点扁平拓扑，适用并发 300+。</desc>
+<defs>
+<style>
+  .t    { font-size: 14px; font-weight: 400; fill: #1f1f1f; }
+  .ts   { font-size: 12px; font-weight: 400; fill: #4a4a4a; }
+  .th   { font-size: 14px; font-weight: 500; fill: #1f1f1f; }
+  .arr  { stroke: #5F5E5A; stroke-width: 1.5; fill: none; }
+  .c-gray   rect { fill: #F1EFE8; stroke: #5F5E5A; }
+  .c-gray   .th { fill: #2C2C2A; } .c-gray .ts { fill: #444441; }
+  .c-coral  rect { fill: #FAECE7; stroke: #993C1D; }
+  .c-coral  .th { fill: #712B13; } .c-coral .ts { fill: #993C1D; }
+  .c-blue   rect { fill: #E6F1FB; stroke: #185FA5; }
+  .c-blue   .th { fill: #0C447C; } .c-blue .ts { fill: #185FA5; }
+  .c-purple rect { fill: #EEEDFE; stroke: #534AB7; }
+  .c-purple .th { fill: #3C3489; } .c-purple .ts { fill: #534AB7; }
+  .c-teal   rect { fill: #E1F5EE; stroke: #0F6E56; }
+  .c-teal   .th { fill: #085041; } .c-teal .ts { fill: #0F6E56; }
+  .c-amber  rect { fill: #FAEEDA; stroke: #854F0B; }
+  .c-amber  .th { fill: #633806; } .c-amber .ts { fill: #854F0B; }
+</style>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+<path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+</marker>
+</defs>
+
+<rect x="0" y="0" width="760" height="1040" fill="#ffffff"/>
+
+<!-- 标题 -->
+<text class="th" x="380" y="30" text-anchor="middle" font-size="17" font-weight="600">HAP 集群精简版部署架构</text>
+<text class="ts" x="380" y="50" text-anchor="middle">单节点存储 · 1 主 1 从 K8s · 6 节点扁平拓扑 · 并发 300+</text>
+
+<!-- 外部用户 -->
+<g class="c-gray">
+<rect x="280" y="70" width="200" height="46" rx="8" stroke-width="0.5"/>
+<text class="th" x="380" y="89" text-anchor="middle" dominant-baseline="central">外部用户 / 终端</text>
+<text class="ts" x="380" y="105" text-anchor="middle" dominant-baseline="central">浏览器 / 移动端</text>
+</g>
+<line x1="380" y1="116" x2="380" y2="144" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="395" y="134" text-anchor="start">https://hap.domain.com</text>
+
+<!-- Nginx 单节点 -->
+<g class="c-coral">
+<rect x="240" y="146" width="280" height="58" rx="8" stroke-width="0.5"/>
+<text class="th" x="380" y="168" text-anchor="middle">Nginx 反向代理 · 单节点</text>
+<text class="ts" x="380" y="188" text-anchor="middle">192.168.1.20 · 监听 80 / 443</text>
+</g>
+<line x1="380" y1="204" x2="380" y2="232" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="395" y="222" text-anchor="start">转发到微服务 www 8880</text>
+
+<!-- K8s 集群（包含 default ns 微服务 + flink ns Flink 计算） -->
+<g class="c-blue">
+<rect x="40" y="234" width="680" height="280" rx="10" stroke-width="0.6"/>
+<text class="th" x="60" y="258">Kubernetes 集群 · 1 Master + 2 Worker（含 Istio · ConfigMap 注入 https://hap.domain.com）</text>
+</g>
+
+<!-- namespace: default（微服务 + Istio，.21/.22） -->
+<g class="c-purple">
+<rect x="60" y="276" width="420" height="226" rx="8" stroke-width="0.5"/>
+<text class="th" x="270" y="298" text-anchor="middle">namespace: default · 微服务多副本</text>
+</g>
+<g class="c-purple">
+<rect x="80" y="316" width="380" height="80" rx="6" stroke-width="0.4"/>
+<text class="th" x="100" y="338">K8s Master + Node 01 · 192.168.1.21</text>
+<text class="ts" x="100" y="358">控制平面 6443 · 管理器 38881</text>
+<text class="ts" x="100" y="376">已移除 control-plane 污点 · 参与 Pod 调度</text>
+</g>
+<g class="c-purple">
+<rect x="80" y="408" width="380" height="80" rx="6" stroke-width="0.4"/>
+<text class="th" x="100" y="430">K8s Worker 02 · 192.168.1.22</text>
+<text class="ts" x="100" y="450">微服务 Pod · Istio sidecar</text>
+<text class="ts" x="100" y="468">NodePort 业务端口</text>
+</g>
+
+<!-- namespace: flink（HDP/Flink，.30） -->
+<g class="c-purple">
+<rect x="500" y="276" width="200" height="226" rx="8" stroke-width="0.5"/>
+<text class="th" x="600" y="298" text-anchor="middle">namespace: flink</text>
+</g>
+<g class="c-purple">
+<rect x="520" y="316" width="160" height="170" rx="6" stroke-width="0.4"/>
+<text class="th" x="600" y="340" text-anchor="middle">HDP / Flink Worker</text>
+<text class="ts" x="600" y="360" text-anchor="middle">192.168.1.30</text>
+<text class="ts" x="600" y="380" text-anchor="middle">K8s Worker · 污点 hap=flink</text>
+<text class="ts" x="600" y="402" text-anchor="middle">JobManager × 1</text>
+<text class="ts" x="600" y="420" text-anchor="middle">TaskManager × 1</text>
+<text class="ts" x="600" y="438" text-anchor="middle">JobManager UI · 28081</text>
+<text class="ts" x="600" y="458" text-anchor="middle">s3 endpoint:</text>
+<text class="ts" x="600" y="476" text-anchor="middle">192.168.1.51:9011</text>
+</g>
+
+
+<!-- Flink 数据流（紫色，与标准/专业版样式一致）-->
+<!-- ① Flink 消费 Kafka：从 Kafka 子框顶部向上指向 Flink 框底 -->
+<path d="M 570 620 L 570 486" fill="none" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+<text class="ts" x="560" y="538" text-anchor="end" style="fill:#534AB7">① 消费 Kafka</text>
+
+<!-- ② Flink 写入 MinIO：从 Flink 框底向下指向 MinIO 子框顶部 -->
+<path d="M 645 486 L 645 688" fill="none" stroke="#534AB7" stroke-width="1" marker-end="url(#arrow)"/>
+<text class="ts" x="655" y="538" text-anchor="start" style="fill:#534AB7">② 写入 MinIO</text>
+
+<!-- 向下分叉到数据库 / 中间件 -->
+<line x1="240" y1="514" x2="240" y2="560" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="115" y="542" text-anchor="start">DB / 缓存</text>
+<line x1="520" y1="514" x2="520" y2="560" class="arr" marker-end="url(#arrow)"/>
+<text class="ts" x="395" y="542" text-anchor="start">MQ / 检索 / 存储</text>
+
+<!-- 数据库节点 单节点共置 -->
+<g class="c-teal">
+<rect x="60" y="562" width="320" height="190" rx="10" stroke-width="0.6"/>
+<text class="th" x="80" y="586">数据库节点 · 单节点共置</text>
+<text class="ts" x="80" y="606">192.168.1.31 · 8C / 32G / 300G 数据盘</text>
+<g class="c-teal"><rect x="80" y="620" width="280" height="38" rx="6" stroke-width="0.4"/>
+<text class="ts" x="95" y="643">MySQL 单节点 · 3306（直连，无 MGR/Router）</text></g>
+<g class="c-teal"><rect x="80" y="664" width="280" height="38" rx="6" stroke-width="0.4"/>
+<text class="ts" x="95" y="687">MongoDB 单节点 · 27017（无副本集）</text></g>
+<g class="c-teal"><rect x="80" y="708" width="280" height="38" rx="6" stroke-width="0.4"/>
+<text class="ts" x="95" y="731">Redis 单节点 · 6379（无哨兵）</text></g>
+</g>
+
+<!-- 中间件节点 单节点共置 -->
+<g class="c-amber">
+<rect x="400" y="562" width="300" height="190" rx="10" stroke-width="0.6"/>
+<text class="th" x="420" y="586">中间件节点 · 单节点共置</text>
+<text class="ts" x="420" y="606">192.168.1.51 · 8C / 32G / 500G 数据盘</text>
+<g class="c-amber"><rect x="420" y="620" width="260" height="30" rx="6" stroke-width="0.4"/>
+<text class="ts" x="435" y="639">Kafka 9092 · ZooKeeper 2181（单 broker）</text></g>
+<g class="c-amber"><rect x="420" y="654" width="260" height="30" rx="6" stroke-width="0.4"/>
+<text class="ts" x="435" y="673">Elasticsearch 9200（single-node）</text></g>
+<g class="c-amber"><rect x="420" y="688" width="260" height="30" rx="6" stroke-width="0.4"/>
+<text class="ts" x="435" y="707">MinIO 9011（单实例 · 单节点 Swarm 2377）</text></g>
+<g class="c-amber"><rect x="420" y="722" width="260" height="24" rx="6" stroke-width="0.4"/>
+<text class="ts" x="435" y="738">File 9000（单实例 · S3 对接 MinIO）</text></g>
+</g>
+
+
+<!-- 监控说明 -->
+<g class="c-gray">
+<rect x="60" y="800" width="640" height="64" rx="8" stroke-width="0.5"/>
+<text class="th" x="80" y="822">监控 · Prometheus + Grafana（可与 Nginx 节点共置）</text>
+<text class="ts" x="80" y="842">node_exporter · cadvisor · kafka_exporter · kube-state-metrics（端口见运维文档）</text>
+<text class="ts" x="80" y="858">Prometheus 9090 · Grafana 3000</text>
+</g>
+
+<!-- 底部链路说明 -->
+<text class="ts" x="60" y="900">链路：① 用户 https://hap.domain.com → ② Nginx 192.168.1.20（80/443）→ ③ K8s 微服务 www 8880（.21/.22）</text>
+<text class="ts" x="60" y="920">→ ④ 数据库 192.168.1.31（MySQL/MongoDB/Redis）/ 中间件 192.168.1.51（Kafka/ES/MinIO/File）</text>
+<text class="ts" x="60" y="942">紫色箭头 = Flink 数据流（消费 Kafka / 写入 MinIO）</text>
+<text class="ts" x="60" y="962">HDP/Flink 节点 .30 作为 K8s Worker 加入 K8s 集群，跑在 namespace: flink 中（不是 K8s 之外的独立节点）。</text>
+</svg>

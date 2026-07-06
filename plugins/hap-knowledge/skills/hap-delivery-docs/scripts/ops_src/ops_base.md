@@ -1,0 +1,1317 @@
+# 文档说明
+
+本文档面向 HAP 私有部署集群标准版（场景 A · 未开启 Docker Swarm 集群）生产环境的日常运维工程师与系统管理员，覆盖多节点高可用集群下的常用命令、组件维护、数据备份与还原、数据清理、版本升级、资源监控、安全管理与故障排查。集群标准版另一场景（场景 B · 开启 Docker Swarm）运维请参阅《HAP运维文档（集群标准版 · 场景 B）》。
+
+> **⚠️ 高危操作提示**：本文档涉及**数据删除、数据还原、版本升级**等高危操作。执行任何删除 / 还原类操作前，强烈建议先咨询 HAP 官方技术支持，或先在**完整组件集群层面做好快照备份**（虚拟机 / 存储快照 + 各组件数据备份，参见第四章），确认可回滚后再执行；生产变更须在变更窗口内进行。
+
+## 适用架构
+
+本文档对应集群标准版场景 A（未开启 Docker Swarm 集群），最小拓扑 17 节点：2 台 Nginx + Keepalived（VIP 192.168.1.20）、3 台 K8s Master+Node + Istio、3 台数据库共置节点（MongoDB 副本集 + MySQL MGR + Router）、3 台 Redis Master/Slave + Sentinel、4 台中间件共置节点（MinIO + File + Kafka + Zookeeper + Elasticsearch，每节点单节点 docker swarm）、2 台 Flink 节点（K8s Worker · Flink 专属）。详细部署步骤请参阅《HAP部署实施文档（集群标准版 · 场景 A）》。
+
+```text
+运维原则
+所有操作必须先备份配置 → 灰度执行 → 校验影响 → 留档说明。
+生产变更必须在变更窗口内执行；紧急变更需事后补登。
+组件版本不可越级升级；如涉及多版本跨度，请按发版顺序逐版升级。
+高可用集群中任何单节点变更都不应影响业务，所有变更先在 SECONDARY/Slave 节点执行，再切换 Primary。
+数据库节点与 MySQL/MongoDB 共置部署，3 台数据库节点同时故障会导致整个数据库层不可用 — 不要在变更窗口内同时操作两台或以上数据库节点。
+```
+
+# 一、组件维护信息
+
+## 1.1 数据库节点
+
+| 组件 | 节点（IP） | 端口 | 安装路径 | 数据目录 | 日志目录 |
+| --- | --- | --- | --- | --- | --- |
+| MongoDB Replica 01 | 192.168.1.31 | 27017 | /usr/local/mongodb | /data/mongodb | /data/logs/mongodb |
+| MongoDB Replica 02 | 192.168.1.32 | 27017 | /usr/local/mongodb | /data/mongodb | /data/logs/mongodb |
+| MongoDB Replica 03 | 192.168.1.33 | 27017 | /usr/local/mongodb | /data/mongodb | /data/logs/mongodb |
+| MySQL MGR Primary | 192.168.1.31 | 3306 / 33061 / 6446 | /usr/local/mysql | /data/mysql | /data/logs/mysql |
+| MySQL MGR Sec 01 | 192.168.1.32 | 3306 / 33061 / 6446 | /usr/local/mysql | /data/mysql | /data/logs/mysql |
+| MySQL MGR Sec 02 | 192.168.1.33 | 3306 / 33061 / 6446 | /usr/local/mysql | /data/mysql | /data/logs/mysql |
+| Redis Master | 192.168.1.41 | 6379 / 26379 | /usr/local/redis | /data/redis | /usr/local/redis/redis.log |
+| Redis Slave 01 | 192.168.1.42 | 6379 / 26379 | /usr/local/redis | /data/redis | /usr/local/redis/redis.log |
+| Redis Slave 02 | 192.168.1.43 | 6379 / 26379 | /usr/local/redis | /data/redis | /usr/local/redis/redis.log |
+
+注：MongoDB systemd 配置文件 /etc/systemd/system/mongodb.service；MySQL 配置 /etc/my.cnf；Redis 配置 /usr/local/redis/redis.conf；Sentinel 配置 /usr/local/redis/sentinel.conf。
+
+## 1.2 中间件节点
+
+| 组件 | 节点（IP） | 端口 | 安装路径 | 数据目录 |
+| --- | --- | --- | --- | --- |
+| Kafka + ZK 01 | 192.168.1.52 | 9092 / 2181 | /usr/local/kafka | /data/kafka |
+| Kafka + ZK 02 | 192.168.1.53 | 9092 / 2181 | /usr/local/kafka | /data/kafka |
+| Kafka + ZK 03 | 192.168.1.54 | 9092 / 2181 | /usr/local/kafka | /data/kafka |
+| Elasticsearch 01 | 192.168.1.52 | 9200 / 9300 | /usr/local/elasticsearch | /data/elasticsearch |
+| Elasticsearch 02 | 192.168.1.53 | 9200 / 9300 | /usr/local/elasticsearch | /data/elasticsearch |
+| Elasticsearch 03 | 192.168.1.54 | 9200 / 9300 | /usr/local/elasticsearch | /data/elasticsearch |
+| MinIO + File 01 | 192.168.1.51 | 9011 / 9001 | 单节点 docker swarm | /data/minio + /data/file |
+| MinIO + File 02 | 192.168.1.52 | 9012 / 9002 | 单节点 docker swarm | /data/minio + /data/file |
+| MinIO + File 03 | 192.168.1.53 | 9013 / 9003 | 单节点 docker swarm | /data/minio + /data/file |
+| MinIO + File 04 | 192.168.1.54 | 9014 / 9004 | 单节点 docker swarm | /data/minio + /data/file |
+
+注：Kafka 配置 /usr/local/kafka/config/server.properties + zookeeper.properties；ES 配置 /usr/local/elasticsearch/config/elasticsearch.yml；MinIO + File 配置 /usr/local/minio/minio.yaml + /usr/local/MDPrivateDeployment/clusterMode/file.yaml。
+
+## 1.3 微服务节点（K8s）
+
+| 组件 | 节点（IP） | 角色 | 说明 |
+| --- | --- | --- | --- |
+| K8s Master+Node 01 | 192.168.1.21 | Master + Worker | kubeadm 引导节点；存储 admin.conf；管理器入口 38881 |
+| K8s Master+Node 02 | 192.168.1.22 | Master + Worker | 通过 kubeadm join --control-plane 加入 |
+| K8s Master+Node 03 | 192.168.1.23 | Master + Worker | 通过 kubeadm join --control-plane 加入 |
+| Istio | 由 K8s 全部 3 节点承载 | istio-system 命名空间 | 版本 1.29.1，sidecar 自动注入 default 命名空间 |
+| HAP 微服务 | 由 K8s 全部 3 节点承载 | default 命名空间 | mingdaoyun-hap 镜像，多副本部署 |
+| Flink | 192.168.1.61 / 192.168.1.62 | Worker（污点 hap=flink） | JobManager × 1 + TaskManager × 2，flink 命名空间 |
+
+## 1.4 Nginx 节点
+
+| 组件 | 节点（IP） | 端口 | 安装路径 | VIP |
+| --- | --- | --- | --- | --- |
+| Nginx 01 + Keepalived MASTER | 192.168.1.11 | 80 | /usr/local/nginx | 192.168.1.20 |
+| Nginx 02 + Keepalived BACKUP | 192.168.1.12 | 80 | /usr/local/nginx | 192.168.1.20 |
+
+注：Nginx 01/02 为两台独立物理服务器（192.168.1.11 / 192.168.1.12），与 K8s 三 Master 节点（192.168.1.21/192.168.1.22/192.168.1.23）相互独立。VIP 192.168.1.20 由 Keepalived 自动漂移；MASTER 节点 Nginx 异常时 VIP 自动漂移到 BACKUP。
+
+# 二、常用命令
+
+## 2.1 K8s 集群管理（任一 K8s Master）
+
+```text
+# 节点状态
+kubectl get node -o wide
+kubectl get pod -A -o wide
+ 
+# 资源使用情况
+kubectl top node
+kubectl top pod -A
+ 
+# 查看 Pod 详细
+kubectl describe pod <pod-name> -n default
+kubectl logs <pod-name> -n default --tail 200 -f
+ 
+# 进入容器
+kubectl exec -it <pod-name> -n default -- /bin/bash
+ 
+# 重启某 Deployment
+kubectl rollout restart deployment <deployment-name> -n default
+kubectl rollout status deployment <deployment-name> -n default
+ 
+# 扩缩容
+kubectl scale deployment <deployment-name> -n default --replicas=<n>
+ 
+# 查看 etcd 健康（仅在 Master）
+ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key endpoint health --cluster
+```
+
+## 2.2 HAP 微服务启停（K8s Master）
+
+```text
+cd /data/mingdao/script/kubernetes/
+ 
+# 启动 / 停止 / 重启
+bash start.sh
+bash stop.sh
+bash restart.sh
+ 
+# 查看 Pod 状态
+kubectl get pod -o wide -w
+ 
+# 一键查看微服务版本
+kubectl get cm env-list -o jsonpath='{.data.ENV_APP_VERSION}'
+```
+
+## 2.3 MinIO + File 容器管理（中间件 4 节点 · 单节点 docker swarm）
+
+```text
+# 场景 A 下每个中间件节点各自维护一个单节点 docker swarm，
+# 使用 docker stack deploy 部署 MinIO / File；每个节点独立操作。
+ 
+# 在某中间件节点上查看本机 Swarm 节点状态
+docker node ls
+ 
+# 查看本节点 stack 列表与服务状态
+docker stack ls
+docker stack ps minio
+docker stack ps file
+ 
+# 启动（每个节点都执行；部署使用 docker stack deploy）
+docker stack deploy -c /usr/local/minio/minio.yaml minio --detach=false
+docker stack deploy -c /usr/local/MDPrivateDeployment/clusterMode/file.yaml file --detach=false
+# 或者直接调用部署脚本
+bash /usr/local/minio/start.sh
+bash /usr/local/MDPrivateDeployment/clusterMode/start.sh
+ 
+# 停止（每个节点都执行）
+docker stack rm minio
+docker stack rm file
+# 或者直接调用部署脚本
+bash /usr/local/minio/stop.sh
+bash /usr/local/MDPrivateDeployment/clusterMode/stop.sh
+ 
+# 查看容器日志
+docker ps -a | grep -E 'minio|file'
+docker logs -f --tail 200 <container-id>
+```
+
+## 2.4 数据库连接（数据库节点）
+
+```text
+# MongoDB 副本集（任一节点）
+# 方式 1：参数形式连接（管理员账户）
+/usr/local/mongodb/bin/mongo -u root -p <强密码> --authenticationDatabase admin --port 27017
+# 方式 2：URI 形式连接（适合连接到具体库）
+/usr/local/mongodb/bin/mongo mongodb://<用户名>:<强密码>@<IP>:<PORT>/<库名>
+# 例：/usr/local/mongodb/bin/mongo mongodb://root:<强密码>@192.168.1.31:27017/mdservicedata?authSource=admin
+# 查看副本集状态
+> rs.status()
+> rs.isMaster()
+ 
+# MySQL（场景 A 通过 Router 6446 端口连接，写入会自动路由到 PRIMARY）
+mysql -h 192.168.1.31 -P 6446 -u root -p<强密码>
+-- 查看 MGR 成员状态
+SELECT MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE FROM performance_schema.replication_group_members;
+ 
+# Redis（任一节点）
+/usr/local/redis/bin/redis-cli -a <强密码> -p 6379
+# Sentinel（任一节点）
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 info sentinel
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL get-master-addr-by-name mymaster
+```
+
+## 2.5 ES / Kafka / MinIO 健康检查
+
+```text
+# ES 集群健康（任一节点）
+curl -u elastic:<强密码> 127.0.0.1:9200/_cat/health?v
+curl -u elastic:<强密码> 127.0.0.1:9200/_cat/nodes?v
+curl -u elastic:<强密码> 127.0.0.1:9200/_cat/indices?v
+curl -u elastic:<强密码> 127.0.0.1:9200/_cluster/allocation/explain?pretty
+ 
+# Kafka topic 列表（任一节点）
+/usr/local/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list
+# 查看 topic 详情（含 leader / ISR）
+/usr/local/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --describe --topic <topic>
+# 查看 broker 列表
+/usr/local/kafka/bin/zookeeper-shell.sh 127.0.0.1:2181 ls /brokers/ids
+ 
+# MinIO 集群信息（在某 MinIO 节点 docker exec 进入容器执行 mc）
+docker exec -it $(docker ps | grep minio | awk 'NR==1{print $1}') mc admin info local
+docker exec -it $(docker ps | grep minio | awk 'NR==1{print $1}') mc admin heal -r local
+```
+
+## 2.6 Sentinel 主从切换查询
+
+```text
+# 当前 Master
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL get-master-addr-by-name mymaster
+ 
+# 当前所有 Slave
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL slaves mymaster
+ 
+# 强制触发故障转移（仅运维介入时使用）
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL failover mymaster
+```
+
+## 2.7 数据库启停命令（数据库节点）
+
+数据库节点（192.168.1.31 / 192.168.1.32 / 192.168.1.33）共置部署 MongoDB 副本集 + MySQL MGR + Router；Redis 独立在 192.168.1.41/192.168.1.42/192.168.1.43。本节列出三类组件的启停命令。建议变更窗口内逐节点操作。
+
+```text
+# === MongoDB 副本集（192.168.1.31 / 192.168.1.32 / 192.168.1.33 每节点都可执行）===
+systemctl status mongodb
+systemctl start mongodb
+systemctl stop mongodb
+systemctl restart mongodb
+# 注意：副本集场景下，PRIMARY 重启会触发选主；如需有序停服建议先 stepDown
+# 在 PRIMARY 上执行：
+/usr/local/mongodb/bin/mongo -u root -p <强密码> --authenticationDatabase admin
+> rs.stepDown(60)   # 主动让出 PRIMARY 60 秒
+ 
+# === MySQL MGR（192.168.1.31 / 192.168.1.32 / 192.168.1.33 每节点都可执行）===
+systemctl status mysql
+systemctl start mysql
+systemctl stop mysql
+systemctl restart mysql
+# 注意：MGR 半数以上节点同时故障会导致集群进入 OFFLINE — 不要同时停两个或以上节点；建议先停 SECONDARY，再停 PRIMARY；启动顺序相反
+ 
+# === Redis + Sentinel（192.168.1.41 / 192.168.1.42 / 192.168.1.43 每节点都可执行）===
+systemctl status redis
+systemctl status sentinel
+# 启动 Redis 与 Sentinel
+systemctl start redis
+systemctl start sentinel
+# 停止时建议先停 Sentinel 再停 Redis，避免误触发故障转移
+systemctl stop sentinel
+systemctl stop redis
+# 重启
+systemctl restart redis
+systemctl restart sentinel
+```
+
+## 2.8 中间件启停命令（中间件节点）
+
+中间件节点（192.168.1.51 / 192.168.1.52 / 192.168.1.53 / 192.168.1.54）共置部署 Kafka + ZooKeeper、Elasticsearch、MinIO + File。Kafka 与 Elasticsearch 位于中间件 02-04（192.168.1.52-192.168.1.54）；MinIO + File 4 节点全部承载。
+
+```text
+# === Kafka + ZooKeeper（192.168.1.52 / 192.168.1.53 / 192.168.1.54 每节点都可执行）===
+# 启动顺序：先 ZooKeeper 后 Kafka；停止顺序相反
+ 
+# ZooKeeper
+systemctl status zookeeper
+systemctl start zookeeper
+systemctl stop zookeeper
+systemctl restart zookeeper
+ 
+# Kafka（ZooKeeper 启动后再启动 Kafka）
+systemctl status kafka
+systemctl start kafka
+systemctl stop kafka
+systemctl restart kafka
+ 
+# 检查 Kafka broker 是否成功注册到 ZK
+/usr/local/kafka/bin/zookeeper-shell.sh 127.0.0.1:2181 ls /brokers/ids
+ 
+# === Elasticsearch（192.168.1.52 / 192.168.1.53 / 192.168.1.54 每节点都可执行）===
+systemctl status elasticsearch
+systemctl start elasticsearch
+systemctl stop elasticsearch
+systemctl restart elasticsearch
+# 滚动重启建议：先把集群设为 no allocation，等节点重启完再恢复
+curl -u elastic:<强密码> -XPUT '127.0.0.1:9200/_cluster/settings' -H 'Content-Type: application/json' -d '{
+  "transient": { "cluster.routing.allocation.enable": "none" }
+}'
+# 重启完成后恢复
+curl -u elastic:<强密码> -XPUT '127.0.0.1:9200/_cluster/settings' -H 'Content-Type: application/json' -d '{
+  "transient": { "cluster.routing.allocation.enable": "all" }
+}'
+ 
+# === MinIO + File 启停 ===
+# 参见 2.3 节，使用 docker stack deploy / docker stack rm
+```
+
+# 三、数据存储介绍
+
+集群标准版场景 A 数据分布在多类节点上（按数据维度 × 节点维度）：
+
+| 数据类型 | 存储节点 | 物理路径 | 说明 |
+| --- | --- | --- | --- |
+| MongoDB 副本集数据 | 192.168.1.31 / 192.168.1.32 / 192.168.1.33（每节点全量副本） | /data/mongodb | 业务库（mdwsrows / mdworksheet / mdservicedata 等 44 个库）；副本集自动同步 |
+| MongoDB keyFile | 同上 | /data/mongodb/keyfile | 副本集节点间内部认证文件，三节点必须完全一致 |
+| MongoDB 日志 | 同上 | /data/logs/mongodb/mongodb.log | 组件运行日志 |
+| MySQL MGR 数据 | 192.168.1.31 / 192.168.1.32 / 192.168.1.33（GTID 同步） | /data/mysql | binlog + ibdata + ibdata.frm；MGR 三节点强一致（GTID 同步） |
+| MySQL binlog | 同上 | /data/mysql/mysql-bin.* | binlog_expire_logs_seconds=2592000（30 天保留） |
+| MySQL Router 配置 | 同上 | /usr/local/mysql-router/ | mysqlrouter.conf；每节点自动 bootstrap 后产生（业务侧通过 6446 端口访问） |
+| Redis 数据 | 192.168.1.41 / 192.168.1.42 / 192.168.1.43（主从复制） | /data/redis/dump.rdb | 快照 RDB；Master 写入后异步同步到 Slave |
+| Sentinel 数据 | 同上 | /data/redis/sentinel/ | Sentinel 监控主从状态文件 |
+| Kafka topic 数据 | 192.168.1.52 / 192.168.1.53 / 192.168.1.54 | /data/kafka/kafka-logs | replication.factor=3（3 副本），retention 168 小时 |
+| Zookeeper 数据 | 同上 | /data/kafka/zookeeper | Kafka 元数据 + myid |
+| Elasticsearch 索引 | 192.168.1.52 / 192.168.1.53 / 192.168.1.54 | /data/elasticsearch/data | 集群分片自动负载；x-pack 证书 cert/elastic-node-certificate.p12 |
+| ES 日志 | 同上 | /data/elasticsearch/logs | ES 运行日志 + 慢查询日志 |
+| MinIO 对象数据 | 192.168.1.51 / 192.168.1.52 / 192.168.1.53 / 192.168.1.54 | /data/minio/volume | EC 纠删码（4 节点 2+2 默认），桶包含 mdmedia / mdpic / mdpub / mdoc |
+| File 缓存与临时 | 同上 | /data/file/volume/{cache,fetchtmp,multitmp,tmp} | 附件缩略图 / 转码临时数据 |
+| HAP 微服务配置 | K8s 01（控制节点） | /data/mingdao/script/kubernetes/ | service.yaml / config.yaml / start/stop/restart 脚本 |
+| etcd 数据（K8s） | 192.168.1.21 / 192.168.1.22 / 192.168.1.23 | /data/etcd | K8s 元数据；三 Master 自动同步 |
+| containerd 镜像 | K8s 三节点 | /data/containerd | 所有镜像缓存（pause、calico、ops 等） |
+| Nginx 配置 + 日志 | 192.168.1.11 / 192.168.1.12 | /usr/local/nginx + /data/logs/weblogs | 配置文件、access/error 日志 |
+
+# 四、数据备份
+
+```text
+备份原则
+在副本集 / 主从架构中，备份操作建议在 SECONDARY / Slave 节点执行，避免对 PRIMARY 造成性能影响。
+数据库备份与 MinIO 文件备份建议每天 03:00–05:00 业务低峰期执行。
+备份产物建议加密上传到独立的备份服务器或对象存储桶，至少保留 30 天。
+```
+
+## 4.1 MongoDB 副本集备份（在 SECONDARY 节点执行）
+
+查询 SECONDARY 节点列表：
+
+```text
+/usr/local/mongodb/bin/mongo -u root -p <强密码> --authenticationDatabase admin <<EOF
+rs.status().members.forEach(m => print(m.name + ' -> ' + m.stateStr))
+EOF
+# 选取任一 SECONDARY 节点（如 192.168.1.32）执行备份
+```
+
+mongodump 全量备份（在 SECONDARY 节点）：
+
+```text
+# 单库备份
+mkdir -p /data/backup/mongo/$(date +%F)
+/usr/local/mongodb/bin/mongodump \
+  --uri "mongodb://root:<强密码>@192.168.1.32:27017/?authSource=admin&readPreference=secondary" \
+  --gzip --out /data/backup/mongo/$(date +%F)/
+ 
+# 全集群备份（包含所有库）
+/usr/local/mongodb/bin/mongodump \
+  --uri "mongodb://root:<强密码>@192.168.1.32:27017/?authSource=admin&readPreference=secondary" \
+  --gzip --archive=/data/backup/mongo/full-$(date +%F).gz
+```
+
+## 4.2 MySQL MGR 备份（在 SECONDARY 节点执行）
+
+查询当前 PRIMARY：
+
+```text
+mysql -h 127.0.0.1 -P 3306 -u root -p<强密码> -e \
+  "SELECT MEMBER_HOST, MEMBER_ROLE FROM performance_schema.replication_group_members;"
+# 选 SECONDARY 节点（如 192.168.1.32）执行备份
+```
+
+mysqldump 全量备份：
+
+```text
+# 在 SECONDARY 节点（192.168.1.32）执行
+mkdir -p /data/backup/mysql/$(date +%F)
+mysqldump -h 192.168.1.32 -P 3306 -u root -p<强密码> \
+  --all-databases --routines --triggers --events --single-transaction \
+  --master-data=2 --set-gtid-purged=ON \
+  | gzip > /data/backup/mysql/$(date +%F)/full-$(date +%F).sql.gz
+```
+
+xtrabackup 物理备份（推荐大库）：
+
+```text
+# 安装 percona-xtrabackup（参考官方文档）
+xtrabackup --backup --target-dir=/data/backup/mysql-physical/$(date +%F) \
+  --user=root --password=<强密码> --host=192.168.1.32 --port=3306
+# 备份完成后 prepare
+xtrabackup --prepare --target-dir=/data/backup/mysql-physical/$(date +%F)
+```
+
+## 4.3 Redis 备份（在 Slave 节点执行）
+
+Redis 在 Master 配置了 save 策略后自动生成 dump.rdb，备份只需复制 Slave 节点的 RDB 文件即可避免影响 Master：
+
+```text
+# 查询当前 Master
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL get-master-addr-by-name mymaster
+# 在某 Slave 节点（192.168.1.42 或 .15）执行
+mkdir -p /data/backup/redis/$(date +%F)
+cp /data/redis/dump.rdb /data/backup/redis/$(date +%F)/dump-$(date +%F).rdb
+# 主动触发存盘（需 Slave 上有数据）
+/usr/local/redis/bin/redis-cli -a <强密码> -p 6379 BGSAVE
+```
+
+## 4.4 MinIO 文件备份（任一 MinIO 节点）
+
+```text
+# 配置 mc alias 指向本集群（任一节点 9011）
+mc alias set hap-minio http://192.168.1.51:9011 mingdao <强密码>
+ 
+# 镜像备份到独立的备份对象存储（建议异地）
+mc mirror --overwrite hap-minio/mdmedia  /data/backup/minio/$(date +%F)/mdmedia/
+mc mirror --overwrite hap-minio/mdpic    /data/backup/minio/$(date +%F)/mdpic/
+mc mirror --overwrite hap-minio/mdpub    /data/backup/minio/$(date +%F)/mdpub/
+mc mirror --overwrite hap-minio/mdoc     /data/backup/minio/$(date +%F)/mdoc/
+```
+
+## 4.5 ES 快照备份（可选，建议）
+
+```text
+# 1. 在三节点上挂载共享存储或 NFS 到 /data/elasticsearch/snapshots（每节点都可访问）
+# 2. 在三节点的 elasticsearch.yml 增加：path.repo: ["/data/elasticsearch/snapshots"]，并滚动重启
+# 3. 注册仓库（任一节点）
+curl -u elastic:<强密码> -XPUT "http://127.0.0.1:9200/_snapshot/hap-backup" -H 'Content-Type: application/json' -d '
+{
+  "type": "fs",
+  "settings": {
+    "location": "/data/elasticsearch/snapshots"
+  }
+}'
+ 
+# 4. 创建快照（含全索引）
+curl -u elastic:<强密码> -XPUT "http://127.0.0.1:9200/_snapshot/hap-backup/snapshot_$(date +%F)?wait_for_completion=true"
+```
+
+## 4.6 K8s ConfigMap 与微服务配置备份
+
+```text
+# 在 K8s 01 上备份所有关键配置
+mkdir -p /data/backup/k8s/$(date +%F)
+ 
+# 微服务 yaml 与脚本
+cp -r /data/mingdao/script/kubernetes/ /data/backup/k8s/$(date +%F)/
+ 
+# ConfigMap 与 Secret 全量导出
+kubectl get cm -A -o yaml > /data/backup/k8s/$(date +%F)/configmaps.yaml
+kubectl get secret -A -o yaml > /data/backup/k8s/$(date +%F)/secrets.yaml
+ 
+# K8s 凭证 admin.conf（务必加密保存）
+cp /etc/kubernetes/admin.conf /data/backup/k8s/$(date +%F)/admin.conf
+ 
+# etcd 快照（在每台 Master 上执行后复制到统一备份位置）
+ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key \
+  snapshot save /data/backup/k8s/$(date +%F)/etcd-$(hostname)-$(date +%F).db
+```
+
+# 五、数据还原
+
+```text
+还原顺序
+1. 先停止微服务（kubectl scale deployment ... --replicas=0），避免数据双写。
+2. 数据库 / 中间件按 PRIMARY → SECONDARY 顺序还原；先恢复 PRIMARY，待 PRIMARY ONLINE 后再启动 SECONDARY。
+3. MinIO 还原后须验证桶可读写。
+4. 启动微服务并校验功能。
+```
+
+## 5.1 MongoDB 副本集还原
+
+全集群还原方案（数据严重损坏时）：
+
+```text
+# 1. 停止三节点的 mongodb 服务
+systemctl stop mongodb     # 在三节点都执行
+ 
+# 2. 在 PRIMARY 节点（如 192.168.1.31）清空数据并保留 keyfile
+find /data/mongodb/ -mindepth 1 ! -name 'keyfile' -exec rm -rf {} +
+ 
+# 3. 在 PRIMARY 节点上以 noauth 临时启动并还原
+su -c '/usr/local/mongodb/bin/mongod --fork --logpath /data/logs/mongodb/mongodb.log --dbpath /data/mongodb --noauth --port 27017' -s /bin/bash mongodb
+ 
+# 4. 还原备份
+/usr/local/mongodb/bin/mongorestore \
+  --gzip --archive=/data/backup/mongo/full-<日期>.gz --drop
+ 
+# 5. 关闭 noauth 实例
+kill $(pgrep -f 'mongod')
+ 
+# 6. 在 SECONDARY 节点（5.5 / 5.6）执行清空数据
+find /data/mongodb/ -mindepth 1 ! -name 'keyfile' -exec rm -rf {} +
+ 
+# 7. 启动 PRIMARY，待 systemctl status mongodb 正常后启动两个 SECONDARY
+systemctl start mongodb       # 在 PRIMARY（10.4）先执行
+systemctl start mongodb       # 在 SECONDARY（10.5）执行
+systemctl start mongodb       # 在 SECONDARY（10.6）执行
+ 
+# 8. 在 PRIMARY 上重新初始化副本集（仅当原副本集成员信息丢失时执行）
+/usr/local/mongodb/bin/mongo -u root -p <强密码> --authenticationDatabase admin
+> rs.initiate({_id: "local-mongodb-one", members:[
+    {_id:1,host:"192.168.1.31:27017"},
+    {_id:2,host:"192.168.1.32:27017"},
+    {_id:3,host:"192.168.1.33:27017"}
+  ]})
+ 
+# 9. 验证
+> rs.status()    # 1 PRIMARY + 2 SECONDARY
+```
+
+## 5.2 MySQL MGR 还原
+
+MGR 集群严重损坏（半数以上节点故障）的还原方案：
+
+```text
+# 1. 三节点都停止 mysql
+systemctl stop mysql
+ 
+# 2. 在选定的引导节点（192.168.1.31，作为新 PRIMARY）清空数据
+rm -rf /data/mysql/*
+mkdir -p /data/mysql && chown mysql:mysql /data/mysql
+ 
+# 3. 在引导节点修改 my.cnf 临时关闭 group_replication_start_on_boot
+sed -ri 's|group_replication_start_on_boot.*|group_replication_start_on_boot = OFF|g' /etc/my.cnf
+ 
+# 4. 初始化并启动
+mysqld --no-defaults --initialize --datadir=/data/mysql/ --user=mysql --log-error=/data/logs/mysql/mysqld.log
+systemctl start mysql
+ 
+# 5. 修改临时密码 + 还原备份
+mysql -uroot -p$(grep 'temporary password' /data/logs/mysql/mysqld.log | awk '{print $NF}')
+mysql> ALTER USER USER() IDENTIFIED BY '<强密码>';
+mysql> RESET MASTER;
+mysql> EXIT;
+ 
+gunzip < /data/backup/mysql/<日期>/full-<日期>.sql.gz | mysql -uroot -p<强密码>
+ 
+# 6. 引导节点开启 MGR
+mysql -uroot -p<强密码> <<SQL
+SET SQL_LOG_BIN=0;
+CREATE USER IF NOT EXISTS 'repl'@'%' IDENTIFIED BY '<强密码>';
+GRANT REPLICATION SLAVE, CONNECTION_ADMIN, BACKUP_ADMIN, GROUP_REPLICATION_STREAM ON *.* TO 'repl'@'%';
+SET SQL_LOG_BIN=1;
+CHANGE REPLICATION SOURCE TO SOURCE_USER='repl', SOURCE_PASSWORD='<强密码>' FOR CHANNEL 'group_replication_recovery';
+SET GLOBAL group_replication_bootstrap_group=ON;
+START GROUP_REPLICATION;
+SET GLOBAL group_replication_bootstrap_group=OFF;
+SQL
+ 
+# 7. 在 SECONDARY（192.168.1.32、192.168.1.33）依次清空数据 + 重启 + 加入
+# 在 192.168.1.32 上执行
+rm -rf /data/mysql/* && mysqld --no-defaults --initialize --datadir=/data/mysql/ --user=mysql --log-error=/data/logs/mysql/mysqld.log
+systemctl start mysql
+mysql -uroot -p$(grep 'temporary password' /data/logs/mysql/mysqld.log | awk '{print $NF}')
+mysql> ALTER USER USER() IDENTIFIED BY '<强密码>';
+mysql> RESET MASTER;
+mysql> CHANGE REPLICATION SOURCE TO SOURCE_USER='repl', SOURCE_PASSWORD='<强密码>' FOR CHANNEL 'group_replication_recovery';
+mysql> START GROUP_REPLICATION;
+ 
+# 同样的步骤在 192.168.1.33 上重复
+ 
+# 8. 等待所有节点 ONLINE 后，三节点 my.cnf 恢复 start_on_boot=ON
+sed -ri 's|group_replication_start_on_boot.*|group_replication_start_on_boot = ON|g' /etc/my.cnf
+```
+
+## 5.3 Redis 还原
+
+```text
+# 1. 停止三节点的 redis 与 sentinel
+systemctl stop redis sentinel
+ 
+# 2. 在 Master（192.168.1.41）清空数据并复制 RDB
+rm -f /data/redis/dump.rdb
+cp /data/backup/redis/<日期>/dump-<日期>.rdb /data/redis/dump.rdb
+chown redis:redis /data/redis/dump.rdb
+ 
+# 3. 启动 Master，再启动 Slave（数据会从 Master 复制）
+systemctl start redis        # 13
+systemctl start redis        # 14
+systemctl start redis        # 15
+ 
+# 4. 启动 Sentinel（三节点）
+systemctl start sentinel     # 13 / 14 / 15
+ 
+# 5. 验证
+/usr/local/redis/bin/redis-cli -a <强密码> info replication
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL get-master-addr-by-name mymaster
+```
+
+## 5.4 MinIO 文件还原
+
+```text
+# 配置 mc alias 指向集群
+mc alias set hap-minio http://192.168.1.51:9011 mingdao <强密码>
+ 
+# 反向 mirror 还原
+mc mirror --overwrite /data/backup/minio/<日期>/mdmedia/  hap-minio/mdmedia
+mc mirror --overwrite /data/backup/minio/<日期>/mdpic/    hap-minio/mdpic
+mc mirror --overwrite /data/backup/minio/<日期>/mdpub/    hap-minio/mdpub
+mc mirror --overwrite /data/backup/minio/<日期>/mdoc/     hap-minio/mdoc
+ 
+# 验证
+mc ls --recursive hap-minio/mdmedia | head -10
+```
+
+## 5.5 ES 快照还原
+
+```text
+# 1. 关闭索引写入（停 HAP 微服务）
+kubectl scale deployment --all -n default --replicas=0
+ 
+# 2. 删除当前索引（全删，慎用！）
+curl -u elastic:<强密码> -XDELETE "http://127.0.0.1:9200/<index-name>"
+ 
+# 3. 还原快照
+curl -u elastic:<强密码> -XPOST "http://127.0.0.1:9200/_snapshot/hap-backup/<snapshot-name>/_restore"
+ 
+# 4. 验证状态 = green
+curl -u elastic:<强密码> 127.0.0.1:9200/_cat/health?v
+```
+
+## 5.6 还原后启动
+
+```text
+# 启动微服务
+cd /data/mingdao/script/kubernetes/
+bash start.sh
+kubectl get pod -o wide -w   # 等待全部 2/2 Running
+ 
+# 通过 Nginx VIP 访问验证
+curl -I http://192.168.1.20/
+```
+
+# 六、数据清理
+
+## 6.1 Nginx 日志清理（两台 Nginx 节点）
+
+```text
+# 配置 logrotate（两台 Nginx 节点都执行）
+cat > /usr/local/logrotate-config/nginx <<'EOF'
+/data/logs/weblogs/*.log {
+    daily
+    rotate 180
+    missingok
+    compress
+    delaycompress
+    olddir /data/logs/weblogs/oldlogs/
+    sharedscripts
+    postrotate
+        if [ -f /usr/local/nginx/logs/nginx.pid ]; then
+            /usr/local/nginx/sbin/nginx -s reopen
+        fi
+    endscript
+}
+EOF
+ 
+# 立即触发切割
+logrotate -f /usr/local/logrotate-config/nginx
+ 
+# 清理 30 天前归档日志
+find /data/logs/weblogs/oldlogs -name "*.gz" -mtime +30 -delete
+```
+
+## 6.2 MongoDB 历史数据归档
+
+原文链接：
+
+数据管理总览：https://docs-pd.mingdao.com/deployment/docker-compose/standalone/data/
+
+日志数据清理：https://docs-pd.mingdao.com/optimize/mongodb/clean/logArchive/
+
+应用行为日志归档：https://docs-pd.mingdao.com/optimize/mongodb/archive/actionlog/
+
+工作表行记录日志归档：https://docs-pd.mingdao.com/optimize/mongodb/archive/worksheetlog/
+
+工作流执行历史归档：https://docs-pd.mingdao.com/optimize/mongodb/archive/workflowlog/
+
+### 6.2.1 概述
+
+MongoDB 中存储的"日志类"数据会随业务运行长期累积，挤占数据库存储空间。HAP 提供归档工具 mingdaoyun-archivetools，可将历史日志数据迁移到独立的归档 MongoDB 实例，主要支持以下三类场景：
+
+应用行为日志（mdservicedata 库）— 表 al_actionlog*
+
+工作表行记录日志（mdworksheetlog 库）— 表 wslog*
+
+工作流执行历史（mdworkflow 库）— wf_instance / wf_subInstanceActivity 等
+
+```text
+注意事项
+归档工具会对来源库、目标库及程序所在机器产生一定资源占用，建议在业务空闲期间执行。
+标准版 MongoDB 为副本集，src 连接字符串中应包含三节点地址 + replicaSet 参数。
+归档完成后会删除源库已归档的数据，但已删除数据所占用的磁盘空间不会立即释放。
+工作流执行历史归档涉及业务连续性 — 如有未审批完、依旧进行中的流程，数据被归档后会受影响，流程将无法继续进行。
+```
+
+### 6.2.2 部署归档目标 MongoDB 实例
+
+提前部署一套独立的 MongoDB 实例（建议单节点即可，无需副本集），用于存储归档数据。可参考部署实施文档第四章 MongoDB 单节点部署步骤。
+
+### 6.2.3 下载归档工具镜像
+
+在中间件节点（具备 Docker 环境的 MinIO + File 节点）拉取归档工具镜像：
+
+```text
+# 应用行为日志归档（mdservicedata）
+docker pull registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-archivetools:1.0.4
+ 
+# 工作表行记录日志、工作流执行历史归档
+docker pull registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-archivetools:1.0.3
+```
+
+### 6.2.4 创建 config.json 配置文件（注意副本集连接串）
+
+应用行为日志归档示例（src 使用副本集 hosts 列表 + replicaSet 参数）：
+
+```text
+[
+  {
+    "id": "1",
+    "text": "描述",
+    "start": "2022-12-31 16:00:00",
+    "end": "2023-12-31 16:00:00",
+    "src": "mongodb://root:<强密码>@192.168.1.31:27017,192.168.1.32:27017,192.168.1.33:27017/mdservicedata?authSource=admin&replicaSet=local-mongodb-one",
+    "archive": "mongodb://root:<强密码>@<归档库IP>:27017/mdservicedata_archive_2023?authSource=admin",
+    "table": "al_actionlog*",
+    "delete": true,
+    "batchSize": 500,
+    "retentionDays": 0
+  }
+]
+```
+
+工作表行记录日志归档示例：
+
+```text
+[
+  {
+    "id": "1",
+    "text": "描述",
+    "start": "2022-12-31 16:00:00",
+    "end": "2023-12-31 16:00:00",
+    "src": "mongodb://root:<强密码>@192.168.1.31:27017,192.168.1.32:27017,192.168.1.33:27017/mdworksheetlog?authSource=admin&replicaSet=local-mongodb-one",
+    "archive": "mongodb://root:<强密码>@<归档库IP>:27017/mdworksheetlog_archive_2023?authSource=admin",
+    "table": "wslog*",
+    "delete": true,
+    "batchSize": 500,
+    "retentionDays": 0
+  }
+]
+```
+
+工作流执行历史归档示例：
+
+```text
+[
+  {
+    "id": "1",
+    "text": "描述",
+    "start": "2022-12-31 16:00:00",
+    "end": "2023-12-31 16:00:00",
+    "src": "mongodb://root:<强密码>@192.168.1.31:27017,192.168.1.32:27017,192.168.1.33:27017/mdworkflow?authSource=admin&replicaSet=local-mongodb-one",
+    "archive": "mongodb://root:<强密码>@<归档库IP>:27017/mdworkflow_archive_2023?authSource=admin",
+    "table": "wf_instance",
+    "delete": true,
+    "batchSize": 500,
+    "retentionDays": 0
+  },
+  {
+    "id": "2",
+    "text": "描述",
+    "start": "2022-12-31 16:00:00",
+    "end": "2023-12-31 16:00:00",
+    "src": "mongodb://root:<强密码>@192.168.1.31:27017,192.168.1.32:27017,192.168.1.33:27017/mdworkflow?authSource=admin&replicaSet=local-mongodb-one",
+    "archive": "mongodb://root:<强密码>@<归档库IP>:27017/mdworkflow_archive_2023?authSource=admin",
+    "table": "wf_subInstanceActivity",
+    "delete": true,
+    "batchSize": 500,
+    "retentionDays": 0
+  }
+]
+```
+
+### 6.2.5 config.json 字段说明
+
+| 字段 | 说明 |
+| --- | --- |
+| id | 任务标识 ID |
+| text | 任务描述（自定义） |
+| start | 指定归档的数据起始时间，UTC 时区（retentionDays > 0 时此配置自动失效），归档大于等于此时间的数据 |
+| end | 指定归档的数据结束时间，UTC 时区（retentionDays > 0 时此配置自动失效），归档小于此时间的数据 |
+| src | 来源库 MongoDB 连接地址（标准版含三节点 + replicaSet 参数） |
+| archive | 目标库 MongoDB 连接地址（如果值为空，则不归档只按设定规则进行删除） |
+| table | 数据表名称（支持 * 通配符，如 al_actionlog*、wslog*） |
+| delete | 默认为 true，归档完成且校验记录数量正确时清理来源库已归档数据；不需要删除则改为 false |
+| batchSize | 单次批量插入与批量删除的条数（默认 500） |
+| retentionDays | 默认 0；> 0 时代表删除多少天前的数据并开启定时任务模式（start / end 自动失效），默认每 24h 执行一次 |
+| 时间格式提示 config.json 中 start / end 的时间是世界时间（UTC），需在本地时间基础上换算（如北京时间需减去 8 小时）。 | 时间格式提示 config.json 中 start / end 的时间是世界时间（UTC），需在本地时间基础上换算（如北京时间需减去 8 小时）。 |
+
+### 6.2.6 启动归档服务
+
+在 config.json 文件所在目录下执行（应用行为日志使用 1.0.4，其他使用 1.0.3）：
+
+```text
+# 应用行为日志归档
+docker run -d -it \
+  -v $(pwd)/config.json:/usr/local/MDArchiveTools/config.json \
+  -v /usr/share/zoneinfo/Etc/GMT-8:/etc/localtime \
+  registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-archivetools:1.0.4
+ 
+# 工作表行记录日志、工作流执行历史归档
+docker run -d -it \
+  -v $(pwd)/config.json:/usr/local/MDArchiveTools/config.json \
+  -v /usr/share/zoneinfo/Etc/GMT-8:/etc/localtime \
+  registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-archivetools:1.0.3
+```
+
+运行模式：
+
+后台运行（默认 -d）：使用 docker ps -a 找到容器 ID，然后 docker logs <容器ID> 查看日志。
+
+前台运行：去掉 -d 参数，日志实时输出到终端，方便观察进度。
+
+### 6.2.7 配置归档数据查看入口（按需）
+
+归档完成后，需在微服务侧（K8s 01 控制节点）增加扩展配置文件，使页面能够查询到归档数据：
+
+工作表行记录日志归档 — 创建 appextensions.json：
+
+```text
+# 文件路径：/data/mingdao/script/volume/worksheet/appextensions.json
+{
+  "Log.Archive": [
+    {
+      "id": "1",
+      "text": "归档-2023",
+      "uri": "mongodb://root:<强密码>@<归档库IP>:27017/mdworksheetlog_archive_2023?authSource=admin;socketTimeout=30s",
+      "start": "2023-01-01",
+      "end": "2024-01-01"
+    }
+  ]
+}
+```
+
+工作流执行历史归档 — 创建 application-www-ext.properties：
+
+```text
+# 文件路径：/data/mingdao/script/volume/workflow/application-www-ext.properties
+spring.data.mongodb.archive.group[0].id=0
+spring.data.mongodb.archive.group[0].text=归档-2023
+spring.data.mongodb.archive.group[0].uri=mongodb://root:<强密码>@<归档库IP>:27017/mdworkflow_archive_2023?authSource=admin
+spring.data.mongodb.archive.group[0].start=2023-01-01
+spring.data.mongodb.archive.group[0].end=2024-01-01
+```
+
+完成扩展配置后重启对应微服务使配置生效。
+
+### 6.2.8 注意事项
+
+归档程序运行期间会对源库（副本集 PRIMARY）、目标库与程序所在机器产生资源占用，建议在业务空闲期间执行。
+
+每次执行归档时请修改 archive 目标库名（建议格式：源库名_archive_日期）。如重复使用相同目标库，程序会因为目标表数据量已存在而判定数量不一致，导致源库数据未被删除。
+
+归档完成后，源库已删除数据所占磁盘空间不会立即释放，但通常会被相同表新写入的数据复用。
+
+如需立即回收磁盘空间，可参考"回收 MongoDB 磁盘空间"文档使用 compact 命令或重建数据文件方式（注意此操作可能锁库，须在停服窗口逐节点执行：先在某 SECONDARY 上执行，再切主、再处理原 PRIMARY）。
+
+## 6.3 Kafka 数据清理
+
+Kafka 默认 168 小时（7 天）自动过期清理，无需手动干预。如需立即清理某 topic：
+
+```text
+# 查看 topic 当前 retention 时间
+/usr/local/kafka/bin/kafka-configs.sh --bootstrap-server 127.0.0.1:9092 --describe --entity-type topics --entity-name <topic>
+ 
+# 临时调整为 1 小时（自动清理过期数据后再恢复）
+/usr/local/kafka/bin/kafka-configs.sh --bootstrap-server 127.0.0.1:9092 --alter --entity-type topics --entity-name <topic> --add-config retention.ms=3600000
+ 
+# 等待清理完成后恢复原值（168 小时）
+/usr/local/kafka/bin/kafka-configs.sh --bootstrap-server 127.0.0.1:9092 --alter --entity-type topics --entity-name <topic> --add-config retention.ms=604800000
+```
+
+## 6.4 历史镜像清理（K8s 三节点）
+
+```text
+# 查看 containerd 镜像（K8s 三节点都执行）
+crictl images
+ 
+# 删除某个旧版本（每节点都执行）
+crictl rmi registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-hap:<旧版本>
+ 
+# 批量清理悬挂（unused）镜像
+crictl rmi --prune
+ 
+# 中间件 4 节点（MinIO + File · 独立 docker）
+docker images
+docker rmi <image-id>
+docker image prune -af
+```
+
+## 6.5 MinIO 临时文件清理
+
+File 服务的 4 个临时目录在 4 个节点上各自独立。在每个 MinIO + File 节点都执行：
+
+```text
+# 在 File 服务容器内清理（每个 MinIO + File 节点都执行）
+find /data/file/volume/cache    -type f -mtime +7  -delete
+find /data/file/volume/fetchtmp -type f -mtime +7  -delete
+find /data/file/volume/multitmp -type f -mtime +7  -delete
+find /data/file/volume/tmp      -type f -mtime +1  -delete
+```
+
+# 七、版本升级
+
+```text
+升级前必读
+升级前请到「版本发布历史」https://docs-pdop.mingdao.com/version 中查看当前版本到目标版本之间是否有标记「含升级附加操作」的版本。
+升级前请注意授权密钥中升级服务是否已到期；超期升级会导致密钥失效。
+升级前务必先完成数据备份（参见第四章），并在测试环境验证通过。
+组件版本不可越级升级；如涉及多版本跨度，请按发版顺序逐版升级。
+集群版组件升级需逐节点滚动执行，避免同时操作多个节点导致集群进入不可用状态。
+```
+
+## 7.1 HAP 微服务升级
+
+原文链接：https://docs-pd.mingdao.com/deployment/kubernetes/upgrade/hap
+
+```text
+升级前注意事项
+微服务在升级前请到「版本发布历史」中查看当前版本到目标版本之间是否有标记「含升级附加操作」的版本。如果涉及，请根据对应指引文档完成相关操作。
+升级前请注意授权密钥中升级服务是否已到期，当授权中的升级服务到期后，请不要升级版本发布日期大于升级服务到期的版本。
+```
+
+### 7.1.1 拉取目标版本的微服务应用镜像
+
+微服务节点服务器支持访问互联网时（K8s 三个节点都执行）：
+
+```text
+crictl pull registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-hap:<目标版本号>
+```
+
+微服务节点服务器不支持访问互联网时（每台 K8s 节点都需要执行）：
+
+```text
+# 离线镜像包下载链接
+https://pdpublic.mingdao.com/private-deployment/offline/mingdaoyun-hap-linux-amd64-<目标版本号>.tar.gz
+ 
+# 解压镜像文件
+gunzip -d mingdaoyun-hap-linux-amd64-<目标版本号>.tar.gz
+ 
+# 导入镜像
+ctr -n k8s.io image import mingdaoyun-hap-linux-amd64-<目标版本号>.tar
+镜像名说明
+从 v7.1.0 开始，mingdaoyun-community 镜像命名已调整为 mingdaoyun-hap，历史镜像名保持不变。
+```
+
+### 7.1.2 滚动更新（推荐）
+
+```text
+滚动更新前提
+微服务运行在 Kubernetes + Istio 模式，可通过滚动更新方式重启，更新过程中页面访问几乎不受影响。
+滚动更新前提：每台微服务节点服务器需要约 40% 可用内存。
+若可用内存不足，需采用非滚动更新方式升级（参见 7.1.3 节）。
+```
+
+在控制节点配置文件所在目录（默认在 K8s 01 节点的 /data/mingdao/script/kubernetes 目录）执行更新命令：
+
+```text
+cd /data/mingdao/script/kubernetes/
+bash update.sh update hap <目标版本号>
+```
+
+执行完成后，等待约 3 ~ 5 分钟重启完成。重启完成后可通过 kubectl get pod 命令查看各 Pod 状态，正常应为 2/2：
+
+```text
+kubectl get pod -o wide
+```
+
+### 7.1.3 非滚动更新（内存不足时使用）
+
+当微服务节点可用内存不足以支持滚动更新时，使用非滚动方式升级。在控制节点配置文件所在目录（默认在 K8s 01 节点的 /data/mingdao/script/kubernetes 目录）执行：
+
+1. 先停止微服务：
+
+```text
+cd /data/mingdao/script/kubernetes/
+bash stop.sh
+```
+
+2. 通过 kubectl get pod 命令确认看不到微服务 Pod 后，再执行升级命令：
+
+```text
+kubectl get pod
+# 确认 Pod 已消失后执行
+bash update.sh update hap <目标版本号>
+```
+
+3. 执行完成后，等待约 3 ~ 5 分钟重启完成。
+
+## 7.2 中间件升级
+
+### 7.2.1 MinIO / File 升级（4 节点 · 单节点 docker swarm）
+
+```text
+# 1. 在 4 个 MinIO + File 节点都拉取新镜像
+docker pull registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-minio:<新版本>
+docker pull registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-file:<新版本>
+ 
+# 2. 在 4 个节点上分别修改本机的 minio.yaml / file.yaml 镜像版本
+sed -ri 's|mingdaoyun-minio:.*|mingdaoyun-minio:<新版本>|g' /usr/local/minio/minio.yaml
+sed -ri 's|mingdaoyun-file:.*|mingdaoyun-file:<新版本>|g' /usr/local/MDPrivateDeployment/clusterMode/file.yaml
+ 
+# 3. 滚动重启：建议逐节点执行，避免 4 节点同时停服
+bash /usr/local/minio/stop.sh && bash /usr/local/minio/start.sh
+bash /usr/local/MDPrivateDeployment/clusterMode/stop.sh && bash /usr/local/MDPrivateDeployment/clusterMode/start.sh
+ 
+# 4. 验证
+docker stack ps minio
+docker stack ps file
+```
+
+### 7.2.2 Kafka / ES 升级（滚动）
+
+Kafka 与 Elasticsearch 集群升级涉及数据兼容性，建议联系明道云交付团队评估后操作；通用滚动升级步骤：
+
+选定一个非主节点（Kafka 任一从 broker / ES 任一非 master 节点）。
+
+停止该节点服务（systemctl stop kafka 或 elasticsearch）。
+
+备份 /data/kafka 或 /data/elasticsearch/data 数据目录。
+
+解压新版本到 /usr/local/kafka.new / /usr/local/elasticsearch.new。
+
+迁移配置文件（保留 server.properties / elasticsearch.yml 中的自定义项）。
+
+原地替换并启动（mv 老 → new），观察日志与集群状态。
+
+确认该节点已正常加入集群（Kafka isr 完整 / ES status=green），再处理下一节点。
+
+## 7.3 数据库升级
+
+数据库升级风险高，必须先在测试环境验证。集群标准版场景 A 的常规建议：
+
+MongoDB 副本集小版本升级（如 4.4.x → 4.4.y）：在每个 SECONDARY 上停服 → 替换二进制 → 启动 → 等待 RECOVERING → SECONDARY → 处理下一节点；最后通过 rs.stepDown() 将原 PRIMARY 降级后再升级它。
+
+MongoDB 大版本升级（如 4.4 → 5.0）：先升级 SECONDARY，待全部正常后通过 setFeatureCompatibilityVersion 切换 FCV，再升级 PRIMARY。建议联系明道云团队评估。
+
+MySQL MGR 小版本升级：每节点逐台 systemctl stop mysql → 替换二进制 → systemctl start mysql → 等待 ONLINE → 处理下一节点。注意 my.cnf 中 group_replication_start_on_boot=ON 时会自动加入 MGR。
+
+Redis 升级：先升级 Slave 节点（systemctl stop redis → 替换二进制 → systemctl start redis），再通过 sentinel failover 触发主从切换，最后升级原 Master。
+
+## 7.4 升级回滚
+
+如升级后服务异常或业务功能受影响：
+
+立即停止当前服务（kubectl scale deployment ... --replicas=0）。
+
+恢复升级前的备份数据（参见第五章）。
+
+回滚到升级前的镜像 / 二进制版本（kubectl rollout undo / 替换 binary）。
+
+启动服务并验证。
+
+```text
+回滚限制
+MGR 完成 group_replication_start_on_boot=ON 切换后再回滚版本风险较高，建议先备份恢复后再操作。
+ES 索引一旦升级会有 metadata 升级，跨大版本回滚不被支持，必须从快照恢复。
+MongoDB FCV 切换后无法直接回滚，需 setFeatureCompatibilityVersion 还原后再降级二进制。
+```
+
+# 八、资源监控
+
+## 8.1 关键监控指标
+
+| 节点类型 | 关键指标 | 告警阈值 |
+| --- | --- | --- |
+| Nginx VIP（2 台） | CPU / 内存 / 5xx 错误率 / Keepalived VIP 漂移 | CPU > 70% / 内存 > 80% / 5xx > 1% / VIP 切换异常 |
+| K8s Master+Node（3 台） | CPU / 内存 / Pod Pending / etcd 延迟 / API 响应 | Pod Pending > 5 min / etcd raft heartbeat 延迟 > 100ms |
+| MongoDB 副本集（3 台） | connections / oplog 延迟 / replicaSet primary 切换 / WiredTiger 缓存命中率 | oplog 延迟 > 60s / 任一节点 SECONDARY 状态长时间 STARTUP2 |
+| MySQL MGR（3 台） | replication_group_members 状态 / GTID 延迟 / Router 连接数 / InnoDB 缓冲池命中率 | 任一节点不在 ONLINE > 5 min / Router 连接数 > 4500 |
+| Redis Master/Slave（3 台） | Master/Slave 同步延迟 / Sentinel 监控状态 / 命中率 / maxmemory 使用率 | Sentinel down-after 触发 / maxmemory 使用 > 80% |
+| Kafka（3 台） | broker 状态 / ISR 数量 / under_replicated_partitions / 消费组堆积 | under_replicated_partitions > 0 / 单分区堆积 > 100w |
+| Elasticsearch（3 台） | cluster status / unassigned_shards / heap 使用率 / search/index 队列 | status != green / unassigned_shards > 0 / heap > 75% |
+| MinIO + File（4 台） | docker compose 服务状态 / EC 副本数 / 4 节点磁盘使用率 | stack 任一服务 0/1 / 单节点磁盘 > 80% |
+| Flink（2 台） | JobManager 存活 / TaskManager 数量 / job 失败次数 / checkpoint 失败次数 | job 重启次数异常 / checkpoint 持续失败 |
+
+## 8.2 Grafana 仪表盘建议
+
+Node Exporter Full（dashboard ID: 1860）— 主机层全部 18 节点。
+
+Kubernetes Cluster Monitoring（dashboard ID: 7249）— K8s 三节点 + 微服务 Pod。
+
+MySQL InnoDB Cluster（dashboard ID: 14071）— MGR 状态 + Router 连接数。
+
+MongoDB Replica Set（dashboard ID: 7353）— 副本集 oplog 延迟、PRIMARY 切换。
+
+Kafka Exporter Overview（dashboard ID: 7589）— 三节点 ISR + 消费堆积。
+
+Redis Dashboard（dashboard ID: 763）— 主从同步 + Sentinel 状态。
+
+Elasticsearch（dashboard ID: 14191）— 集群健康 + 索引分布。
+
+## 8.3 日常巡检清单（每日 08:30）
+
+K8s：kubectl get node 全部 Ready；kubectl get pod -A 全部 Running 且 RESTARTS 无新增。
+
+Nginx：Keepalived VIP 192.168.1.20 在 MASTER 节点上 ip a 可见；备节点 BACKUP 状态。
+
+MongoDB：rs.status() 显示 1 PRIMARY + 2 SECONDARY；oplog 延迟 < 30 秒。
+
+MySQL：performance_schema.replication_group_members 三节点 ONLINE；mysql-auto-recover.timer 无报错日志。
+
+Redis：SENTINEL get-master-addr-by-name mymaster 返回当前 Master；info replication 同步偏移正常。
+
+Kafka：所有 broker 上 zookeeper-shell.sh ls /brokers/ids 显示 [0,1,2]；under_replicated_partitions = 0。
+
+Elasticsearch：_cat/health 显示 status=green、number_of_nodes=3；_cat/indices 中无 red / yellow 索引。
+
+MinIO + File：4 个节点上 docker compose ps 显示对应 minio/file 容器均 Running；任一节点 mc admin info 显示 4 servers。
+
+微服务：HAP 控制台首页可正常访问；后台 kubectl rollout status 无 stuck Deployment。
+
+备份：/data/backup 当日目录已生成且大小符合预期；备份服务器或备份对象桶有当日产物。
+
+磁盘：所有节点根分区使用率 < 70%；数据盘使用率 < 80%；如超阈值参考第六章清理。
+
+# 九、安全管理
+
+## 9.1 网络访问控制
+
+生产环境必须通过堡垒机统一接入；禁止开放 22 端口到公网。
+
+Nginx VIP 节点开放 80/443；其他所有节点不对公网暴露。
+
+K8s API（6443）、etcd（2379/2380）只在节点之间互通。
+
+数据库节点（MongoDB 27017、MySQL 3306 / 33060 / 33061 / 6446 / 6447、Redis 6379/26379）仅对微服务子网可达。其中 6446 / 6447 是 MySQL Router 业务读写 / 只读端口；33060 / 33061 仅 MGR 内部通信。
+
+Kafka 9092、ES 9200/9300、MinIO 9011-9014、File 9001-9004 仅对微服务子网可达。
+
+场景 A 未启用 Docker Swarm，无需开放 2377/7946/4789 端口；若切换至场景 B，请按场景 B 文档放通这些端口。
+
+## 9.2 凭证与密钥管理
+
+数据库 root / hap 用户、Redis requirepass / masterauth、Sentinel auth-pass、MinIO MINIO_ROOT_PASSWORD、ES elastic、File ENV_SECRET_KEY_FILE 全部使用强口令；密码字符仅允许 - 或 _ 类特殊字符。
+
+MongoDB 副本集 keyFile（/data/mongodb/keyfile）所有三节点必须完全一致并 chmod 400。
+
+ES x-pack 证书（cert/elastic-node-certificate.p12）三节点必须使用同一份；建议每年轮换。
+
+K8s admin.conf 严禁留在非 Master 节点；运维人员通过 kubectl context + RBAC 控制权限。
+
+管理器入口 38881 不对公网暴露；管理员密码需定期轮换。
+
+## 9.3 产品与组件漏洞修复
+
+关注明道云官网 https://docs-pdop.mingdao.com 与 https://docs-pd.mingdao.com 发布的安全公告。
+
+每季度对底层 OS 与依赖（OpenSSL、glibc、kernel）执行漏扫并按计划升级。
+
+Docker / containerd / Kubernetes 跟随官方 LTS 通道升级；版本跨度大时需联系明道云团队评估。
+
+对暴露给互联网的 Nginx VIP 入口启用 WAF（如阿里云 WAF / Modsecurity）。
+
+# 十、故障排查
+
+## 10.1 微服务 Pod 持续 CrashLoopBackOff
+
+```text
+# 查看事件与日志
+kubectl describe pod <pod-name> -n default
+kubectl logs <pod-name> -n default --previous --tail 200
+ 
+# 常见原因：
+# 1. ConfigMap env-list 中数据库连接错误（MGR 写入路由到 SECONDARY 会失败 — 必须用 Router 6446 端口而非直接 3306）
+# 2. MongoDB 连接串缺少 ?replicaSet=local-mongodb-one
+# 3. Redis 哨兵密码错误或 ENV_REDIS_SENTINEL_MASTER 与 sentinel.conf 中 monitor 名称不一致
+```
+
+## 10.2 MongoDB 副本集 SECONDARY 长时间 STARTUP2 / RECOVERING
+
+```text
+# 查看节点 oplog 状态
+> rs.printReplicationInfo()
+> rs.printSecondaryReplicationInfo()
+ 
+# 排查思路：
+# 1. 该 SECONDARY 上数据被破坏 — 清空数据后重启会重新做初始同步：
+#    systemctl stop mongodb
+#    find /data/mongodb/ -mindepth 1 ! -name 'keyfile' -exec rm -rf {} +
+#    systemctl start mongodb
+#    通过 rs.status() 观察 STATE: STARTUP2 → SECONDARY
+# 2. 网络分区：检查三节点之间 27017 端口连通性
+# 3. keyFile 不一致：md5sum /data/mongodb/keyfile 三节点必须相同
+```
+
+## 10.3 MySQL MGR 节点不在 ONLINE
+
+```text
+# 查看当前组成员状态
+mysql -h 127.0.0.1 -P 3306 -u root -p<强密码> -e \
+  "SELECT MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE FROM performance_schema.replication_group_members;"
+ 
+# 节点状态为 ERROR / OFFLINE 时
+# 1. 在该节点上重启 GR
+mysql -h 127.0.0.1 -u root -p<强密码> <<SQL
+STOP GROUP_REPLICATION;
+START GROUP_REPLICATION;
+SQL
+ 
+# 2. 半数以上节点同时故障导致集群整体 OFFLINE
+# 等待 mysql-auto-recover.timer 自动恢复（每分钟检测，连续 3 次确认后触发 reboot_cluster_from_complete_outage）
+tail -f /data/logs/mysql/mysql-auto-recover.log
+ 
+# 3. 手动触发恢复（在 GTID 最新的节点执行）
+mysqlsh --no-wizard --py --uri root@127.0.0.1:3306 -p<强密码>
+> dba.reboot_cluster_from_complete_outage('hap-mysql', {'force': True})
+```
+
+## 10.4 Redis 主从切换异常 / 业务连接报错
+
+```text
+# 查看 Sentinel 当前 Master
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL get-master-addr-by-name mymaster
+ 
+# 业务连接错误「READONLY」时表示客户端连到了 Slave；File 服务必须使用哨兵协议（ENV_REDIS_SENTINEL_*）
+# HAP 微服务连接：在 ConfigMap 中确认 ENV_REDIS_SENTINEL_ENDPOINTS 为三节点 26379 + ENV_REDIS_SENTINEL_MASTER=mymaster
+ 
+# 强制故障切换（运维介入时使用）
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL failover mymaster
+ 
+# 重新查询 Master
+/usr/local/redis/bin/redis-cli -a <强密码> -p 26379 SENTINEL get-master-addr-by-name mymaster
+```
+
+## 10.5 Kafka 分区 under_replicated > 0
+
+```text
+# 查看哪些 partition 的 ISR 不全
+/usr/local/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --describe --under-replicated-partitions
+ 
+# 1. 检查异常 broker 状态：systemctl status kafka
+# 2. 网络问题：检查三节点 9092 互通
+# 3. 数据盘满：df -h /data/kafka，对应清理 retention 或扩容
+# 4. 重启异常 broker，等待 ISR 自动恢复
+```
+
+## 10.6 Elasticsearch unassigned_shards > 0
+
+```text
+# 查看未分配分片原因
+curl -u elastic:<强密码> 127.0.0.1:9200/_cluster/allocation/explain?pretty
+ 
+# 常见原因：
+# 1. 节点磁盘超过 high.disk.watermark（默认 90%）— 清理或扩容数据盘
+# 2. 节点宕机 — 启动节点后会自动重新分配
+# 3. 索引设置 number_of_replicas 大于可用节点数 — 通过 PUT /<index>/_settings 调小
+ 
+# 强制重新分配（慎用）
+curl -u elastic:<强密码> -XPOST "127.0.0.1:9200/_cluster/reroute?retry_failed=true"
+```
+
+## 10.7 MinIO / File 集群某节点离线
+
+```text
+# 场景 A 下每个 MinIO + File 节点独立 docker compose 运行
+# 在该离线节点上排查：
+systemctl status docker
+journalctl -u docker -f
+ 
+# 查看本节点容器状态
+docker stack ps minio
+docker stack ps file
+ 
+# 重新启动本节点的服务
+bash /usr/local/minio/start.sh
+bash /usr/local/MDPrivateDeployment/clusterMode/start.sh
+ 
+# 4 节点 MinIO 在 EC 模式（4 节点 2+2 默认）下允许同时 2 节点离线但写入受限，应尽快修复
+# MinIO 自动愈合：
+docker exec -it $(docker ps | grep minio | awk 'NR==1{print $1}') mc admin heal -r local
+```
+
+## 10.8 K8s 控制平面异常（任一 Master 不可用）
+
+```text
+# 任一 Master 离线时，由于 controlPlaneEndpoint 指向 k8s-master（hosts 三 IP），
+# 客户端请求会自动落到剩余 2 台 Master，业务不受影响。
+ 
+# 排查异常 Master
+systemctl status kubelet
+journalctl -u kubelet -f
+crictl ps -a | grep apiserver
+ 
+# etcd 健康检查（需用证书）
+ETCDCTL_API=3 etcdctl --endpoints=https://127.0.0.1:2379 \
+  --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+  --cert=/etc/kubernetes/pki/etcd/server.crt \
+  --key=/etc/kubernetes/pki/etcd/server.key endpoint status -w table
+ 
+# 整个 Master 节点不可恢复时：
+# 1. kubeadm reset -f
+# 2. 在剩余 Master 上 kubeadm init phase upload-certs --upload-certs 重新生成 certificate-key
+# 3. 在故障 Master 上 kubeadm join k8s-master:6443 --token <new-token> --discovery-token-ca-cert-hash <hash> --control-plane --certificate-key <key>
+```
+
+## 10.9 Nginx VIP 漂移异常
+
+```text
+# 在 MASTER 与 BACKUP 节点查看 Keepalived 状态
+systemctl status keepalived
+journalctl -u keepalived -f
+ 
+# VIP 不在任何节点上的极端场景：
+ip a | grep 192.168.1.20   # 两节点都不显示
+ 
+# 1. 检查 chk_nginx 脚本：killall -0 nginx 必须返回 0
+# 2. priority 配置：MASTER=110、BACKUP=100，且 auth_pass 一致
+# 3. 网络：两台节点之间 VRRP 协议（IP 224.0.0.18）须可通
+ 
+# 临时手动启 VIP（应急）
+ip addr add 192.168.1.20/24 dev eth0
+```
