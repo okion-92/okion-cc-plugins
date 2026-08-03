@@ -1,11 +1,11 @@
 ---
 name: hap-deployment-troubleshooter
-description: 明道云 HAP 私有部署排障技能。基于 https://docs-pd.mingdao.com 的部署文档、FAQ、组件文档、运维页面，外加 158 条本机实战故障/配置条目，输出排查顺序、核验项和建议动作。触发：用户提到"部署失败""启动失败""服务起不来""服务挂了""升级后异常""升级后不能用""工作流堆积""工作流持续排队""流程排队""工作流不消费""工作流消费慢""md-workflow-consumer""Kafka rebalance""Kafka 问题""MongoDB 问题""预览失败""附件无法预览""附件下载失败""onlyoffice 报错""预览白屏""接口端口丢失""URL 少端口""Host 头""proxy_set_header""反向代理 Header""nginx 1.29""文档打不开""LibreOffice""HDP""离线部署问题""怎么排查""怎么定位""帮我给一份排障步骤""先排查什么""按官方文档排障"；以及实战库覆盖的"清 Redis 缓存""重置部门/组织/地区/职位""强制退出登录""重置/找回登录密码""物理删除离职用户""限制 IP/UA/来源访问""短信轰炸防护""非 ROOT 改造""log4j 漏洞修复""证书到期续期""慢查询加索引""compact 回收磁盘""磁盘满"等。
+description: 明道云 HAP 私有部署排障技能。基于 https://docs-pd.mingdao.com 的部署文档、FAQ、组件文档、运维页面，外加 159 条本机实战故障/配置条目，输出排查顺序、核验项和建议动作。触发：用户提到"部署失败""启动失败""服务起不来""服务挂了""升级后异常""升级后不能用""工作流堆积""工作流持续排队""流程排队""工作流不消费""工作流消费慢""md-workflow-consumer""Kafka rebalance""Kafka 问题""MongoDB 问题""预览失败""附件无法预览""附件下载失败""onlyoffice 报错""预览白屏""接口端口丢失""URL 少端口""Host 头""proxy_set_header""反向代理 Header""nginx 1.29""文档打不开""LibreOffice""HDP""离线部署问题""怎么排查""怎么定位""帮我给一份排障步骤""先排查什么""按官方文档排障"；以及实战库覆盖的"清 Redis 缓存""重置部门/组织/地区/职位""强制退出登录""重置/找回登录密码""物理删除离职用户""限制 IP/UA/来源访问""短信轰炸防护""非 ROOT 改造""log4j 漏洞修复""证书到期续期""慢查询加索引""compact 回收磁盘""磁盘满"等。
 ---
 
 # HAP 私有部署排障助手
 
-> 本 skill 由 `hap-private-knowledge` 仓库 `sources/faq/` 生成（158 条）。改知识请改 sources 再重生成，**勿直接手改本目录**。完整目录见 `sources/faq/ROUTING.md`。
+> 本 skill 由 `hap-private-knowledge` 仓库 `sources/faq/` 生成（159 条）。改知识请改 sources 再重生成，**勿直接手改本目录**。完整目录见 `sources/faq/ROUTING.md`。
 
 实战故障/配置全部在 `data/`，本文件只给排查流程与路由。每条知识 = 一个 `## <slug>` 段，含 `现象 / 处理 / 核验`。
 

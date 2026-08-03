@@ -2,6 +2,40 @@
 
 > 由 sources/faq/ 生成，勿手改。每条 `## <slug>` 对应一个 source 文件，可在 ROUTING.md 反查。
 
+## attachment-download-double-http-intranet-endpoint — 附件可上传但无法下载 —— ENV_MINGDAO_INTRANET_ENDPOINT 协议头导致双重 http
+
+
+### 现象
+附件可以正常上传，但下载失败。日志中的下载地址出现双重协议头，并伴随将 `http` 当作主机名解析的错误：
+
+```text
+url=http://http://<www-service>:8880/file/...
+dnsLookup error: hostname = http
+```
+
+### 原因
+`config.yaml` 中 `ENV_MINGDAO_INTRANET_ENDPOINT` 填入了带协议头的地址；服务在生成下载链接时会再拼接协议，最终形成 `http://http://...`。
+
+错误示例：
+
+```yaml
+ENV_MINGDAO_INTRANET_ENDPOINT: "http://www:8880"
+```
+
+### 处理
+删除该变量值中的 `http://`，保留当前环境实际使用的服务名和端口：
+
+```yaml
+ENV_MINGDAO_INTRANET_ENDPOINT: "www:8880"
+```
+
+保存 `config.yaml` 后，按当前部署方式重建或重启读取该变量的微服务，使配置生效。
+
+### 核验
+- 重新上传并下载附件，确认下载正常。
+- 检查日志，下载地址不再出现 `http://http://`。
+- 检查日志，不再出现 `hostname = http` 的 DNS 解析错误。
+
 ## attachment-large-file-upload-fail — 附件功能上传大文件失败（代理层大小限制）
 
 
