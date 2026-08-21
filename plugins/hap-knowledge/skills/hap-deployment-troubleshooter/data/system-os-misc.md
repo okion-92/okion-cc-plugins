@@ -136,7 +136,7 @@ fio: error while loading shared libraries: libaio.so.1: cannot open shared objec
 
 ### 处理
 ```bash
-#### 检查下
+### 检查下
 ldconfig -p | grep libaio
 fio --enghelp | grep libaio
 
@@ -512,4 +512,3 @@ ENV_APP_VERSION: "xxx"
 
 ### 场景
 集群版工作流"获取记录打印文件"节点执行失败，原因：环境变量缺失。微服务添加 `ENV_MINGDAO_INTRANET_ENDPOINT` 变量（默认 `app:8880`）。
-

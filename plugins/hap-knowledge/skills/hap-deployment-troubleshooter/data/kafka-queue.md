@@ -310,4 +310,3 @@ iptables -I INPUT -s <节点2IP> -p tcp --dport 2181 -j ACCEPT
 iptables -I INPUT -s <节点3IP> -p tcp --dport 2181 -j ACCEPT
 ```
 开机自加：把上述规则 `echo ... >> /etc/rc.d/rc.local && chmod +x /etc/rc.d/rc.local`。
-

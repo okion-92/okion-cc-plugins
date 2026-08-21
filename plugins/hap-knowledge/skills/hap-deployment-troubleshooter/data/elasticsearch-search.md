@@ -256,4 +256,3 @@ mv /data/mingdao/script/volume/data/storage /data/mingdao/script/volume/data/sto
 \cp -rfp /data/mingdao-bak/script/volume/data/mysql   /data/mingdao/script/volume/data/
 bash service.sh startall   # 启动检查、浏览器访问
 ```
-

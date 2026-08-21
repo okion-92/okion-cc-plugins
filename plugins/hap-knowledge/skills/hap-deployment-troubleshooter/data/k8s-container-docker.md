@@ -300,7 +300,7 @@ mkdir /var/lib/docker
 # 查看 i 节点
 ls -i /var/lib/ | grep docker && ls -i /data/docker/
 mount --bind /data/docker /var/lib/docker
-### 取消挂载：umount /var/lib/docker
+## 取消挂载：umount /var/lib/docker
 # 检查 i 节点是否一致
 ls -i /data/docker /var/lib/docker
 
@@ -481,6 +481,7 @@ crictl pull registry.cn-hangzhou.aliyuncs.com/mdpublic/mingdaoyun-command:node20
 
 #### 3、service.yaml 末尾新增 commandv2 服务（文件最后一空行添加）
 ```yaml
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -522,6 +523,7 @@ spec:
           initialDelaySeconds: 180
           periodSeconds: 10
 
+---
 
 apiVersion: v1
 kind: Service
@@ -535,6 +537,7 @@ spec:
     - name: grpc-commandv2
       port: 9098
       targetPort: 9098
+---
 ```
 
 #### 4、重启微服务
@@ -1378,4 +1381,3 @@ systemctl restart containerd kubelet
 
 ### 核验
 `containerd -v` 输出预期版本；k8s 初始化后 `kube-controller-manager`、`kube-scheduler` 不再反复重启，`kubectl get pod -n kube-system` 状态稳定为 Running。
-

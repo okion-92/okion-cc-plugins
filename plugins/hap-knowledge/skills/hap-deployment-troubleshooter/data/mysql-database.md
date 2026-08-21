@@ -538,4 +538,3 @@ bash ./service.sh restartall
 
 ### 核验
 外部用对应账号/密码连接 `宿主机IP:3306`（MySQL）、`宿主机IP:27017`（MongoDB，需带鉴权）能连上；MongoDB 开启 `--auth` 后无密码连接被拒。
-

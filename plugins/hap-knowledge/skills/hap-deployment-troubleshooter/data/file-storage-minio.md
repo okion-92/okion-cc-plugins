@@ -15,13 +15,13 @@
 mkdir /data/mingdao/script/volume/nginx/
 docker cp $(docker ps |grep "community"|awk '{print $1}'):/usr/local/nginx/conf/conf.d/private.conf /data/mingdao/script/volume/nginx/
 
-#### 修改
+### 修改
 把 /data/mingdao/script/volume/nginx/private.conf 中
 #location ^~/minio {
 	#proxy_set_header   Host $host;
     #proxy_pass http://private-file;
 #}
-#### 改为：
+### 改为：
 location ^~/minio {
 	proxy_set_header Accept-Encoding "";
 	sub_filter_once off;
@@ -33,17 +33,17 @@ location ^~/minio {
 	proxy_pass http://private-file;
 }
 
-#### /data/mingdao/script/docker-compose.yaml 中挂载，例如：
+### /data/mingdao/script/docker-compose.yaml 中挂载，例如：
     volumes:
       - ./volume/data/:/data/
       - ./volume/nginx/private.conf:/usr/local/nginx/conf/conf.d/private.conf
       - ../data:/data/mingdao/data
       - /usr/share/zoneinfo/Etc/GMT-8:/etc/localtime
 
-#### 重启明道云服务
+### 重启明道云服务
 管理器目录下 bash service.sh restartall
 
-#### 访问：明道云访问地址 + /minio，例如 http://<访问地址>:8880/minio
+### 访问：明道云访问地址 + /minio，例如 http://<访问地址>:8880/minio
 用户：mdstorage
 密码：<minio密码>
 ```
@@ -234,4 +234,3 @@ tail -n 10 -f nohup.out
 
 ### 核验
 `mc ls cluster/<桶/路径>` 确认目标对象/文件夹已不再列出。
-

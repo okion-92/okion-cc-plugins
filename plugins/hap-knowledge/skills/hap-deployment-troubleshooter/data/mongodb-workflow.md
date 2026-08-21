@@ -1012,4 +1012,3 @@ db.wslog202412.createIndex({oid:1, wsid:1, caid:1}, {background:true, name:"oid_
 ### 核验
 - `db.wslog202412.getIndexes().length` 应 ≥5，且包含上面四个命名索引（`oid_1_wsid_1_attrs_1`、`uid_1` 等）。
 - 重跑第 1 步扫描脚本，目标集合不再出现在「索引数量 <5」的输出里。
-

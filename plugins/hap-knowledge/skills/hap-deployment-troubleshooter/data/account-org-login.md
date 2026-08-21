@@ -521,4 +521,3 @@ source /entrypoint.sh && apiShutdown
 ### 核验
 - `redis-cli -a 123456 KEYS "md:city:v4:"` 无输出（缓存已清）；相关服务重启后会重新生成。
 - 前端打开任意带地区选择的字段，省/市/区联动正常加载，确认地区库已重置刷新。
-

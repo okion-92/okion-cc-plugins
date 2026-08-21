@@ -430,4 +430,3 @@ location /privatedeploy/mdy/prometheusalert/ {
 }
 ```
 访问地址：`<访问地址>/privatedeploy/mdy/prometheusalert/`
-

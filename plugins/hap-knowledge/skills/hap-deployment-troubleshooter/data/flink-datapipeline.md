@@ -266,4 +266,3 @@ sp_helpfilegroup
 
 ### 核验
 `EXEC sys.sp_cdc_help_change_data_capture` 返回目标表的 capture instance，即表级 CDC 已开启，数据集成可正常读取增量。
-

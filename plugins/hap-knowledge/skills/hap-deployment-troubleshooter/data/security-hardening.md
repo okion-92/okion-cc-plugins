@@ -27,6 +27,7 @@ EOF
 ```
 4. 重启微服务：`bash service.sh restartall`
 
+---
 
 ### 变体：未勾选 SSL + 25 端口报「建立 SSL 链接错误」
 现象：系统管理配置邮件服务时未勾选「使用 SSL 链接」、端口填 25，但发送失败，日志提示建立 SSL 链接错误。
@@ -604,4 +605,3 @@ ENV_REDIS_PASSWORD: "f8K5ZT3aQXTb"
 - 改密成功：`docker exec -it $(docker ps | grep community | awk '{print $1}') bash -c "redis-cli -a <新密码> <<< 'config get requirepass'"` 返回新密码；用旧密码 `123456` 连接应被拒（NOAUTH/WRONGPASS）。
 - 端口映射生效：宿主机 `redis-cli -h 127.0.0.1 -p 6379 -a <新密码> ping` 返回 PONG。
 - restartall 后业务正常（容器内 ENV_REDIS_PASSWORD 已为新密码），确认白名单已限制来源、未把无密码端口暴露公网。
-
