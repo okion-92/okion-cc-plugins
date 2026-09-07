@@ -205,6 +205,45 @@ esac
 ### 核验
 `firewall-cmd --reload` 后 `firewall-cmd --zone=public --list-all` 应列出新增富规则；各节点间 `telnet <目标IP> <端口>` 通；k8s pod 间互通正常、coredns 重建后解析正常。
 
+## cluster-node-image-id-mismatch-intermittent-404 — 集群节点镜像不一致导致偶发接口 404
+
+
+### 现象 / 场景
+
+集群中的同一服务出现偶发接口 404：请求落到部分节点时失败，切换或重试后可能恢复。对比运行环境发现，其中一个节点使用的服务镜像 ID 或镜像摘要与其他正常节点不一致。
+
+### 原因（如适用）
+
+该节点导入、缓存或引用了错误的镜像版本，导致同一服务的节点实际运行代码不一致。流量被负载均衡到异常节点时即返回 404。
+
+### 处理
+
+1. 先确认故障只在特定后端节点复现，并记录异常节点与正常节点的镜像引用、镜像 ID 和摘要：
+
+   ```bash
+   docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.ImageID}}'
+   docker image inspect <镜像引用> --format '{{.Id}} {{index .RepoDigests 0}}'
+   ```
+
+   Kubernetes 环境可同时核对工作负载声明和实际 Pod 镜像：
+
+   ```bash
+   kubectl get deployment <服务名> -n <命名空间> -o jsonpath='{.spec.template.spec.containers[*].image}'
+   kubectl get pods -n <命名空间> -l app=<服务标签> -o jsonpath='{range .items[*]}{.spec.nodeName}{"\t"}{.spec.containers[*].image}{"\n"}{end}'
+   ```
+
+2. 从已验证的制品来源重新导入或拉取与正常节点一致的镜像；导入后再次核对镜像 ID/摘要。不要仅按标签名称判断一致性。
+
+3. 仅重启使用错误镜像的服务实例或滚动重启对应工作负载，使其明确使用已核验的镜像；按变更流程观察就绪状态后再恢复全部流量。
+
+4. 若镜像由离线包导入，保留导入包的校验记录，并检查节点镜像分发和发布流程，防止后续节点再次导入不同构建产物。
+
+### 核验
+
+- 各节点对应服务的镜像 ID/摘要一致，且与已批准制品一致。
+- 所有服务实例均处于就绪状态，负载均衡轮询到每个后端节点时接口均返回预期结果，不再出现偶发 404。
+- 在观察窗口内，访问日志和监控中未再出现该接口的节点间差异。
+
 ## debian-install-containerd — Debian 11/12 安装 containerd（k8s 用）
 
 
