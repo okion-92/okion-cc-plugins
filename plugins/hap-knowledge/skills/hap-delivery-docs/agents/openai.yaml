@@ -1,7 +1,7 @@
 interface:
-  display_name: "Hap Delivery Docs"
-  short_description: "Generate a complete HAP (Mingdao/明道云 超级应用平台) private-deployment delivery documentation suite。"
-  default_prompt: "Use $hap-delivery-docs to handle the request."
+  display_name: "HAP 交付文档"
+  short_description: "按当前官方来源生成 HAP 私有部署文档与架构图"
+  default_prompt: "Use $hap-delivery-docs to generate the requested deliverables after verifying current official component sources."
 
 policy:
   allow_implicit_invocation: true

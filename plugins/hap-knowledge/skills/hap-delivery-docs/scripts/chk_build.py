@@ -94,6 +94,20 @@ elif tier=='lite':
                 'Nginx 192.168.1.20（单节点）→ K8s 2 节点 → 数据库节点 192.168.1.31（MySQL/MongoDB/Redis 单实例）+ 中间件节点 192.168.1.51（Kafka/ES/MinIO/File 单实例）+ Flink 192.168.1.30')
     out=s
 else: sys.exit('tier 必须是 stdA|stdB|proA|proB|lite')
+if os.environ.get('HAP_DELIVERY_FILES'):
+    import json
+    names=json.loads(os.environ['HAP_DELIVERY_FILES'])
+    names=[name for name in names if name.endswith(('.docx','.xlsx','.svg','.png'))]
+    table='\n'.join('| %d | %s | %s |'%(i+1,name,name.rsplit('.',1)[-1].upper()) for i,name in enumerate(names))
+    info=re.search(r'## 项目基本信息\n(.*?)\n# 二、',out,re.S)
+    project_info=re.sub(r'(?m)^客户名称：[^\n]*', '客户名称：某示例客户', info.group(1)) if info else '客户名称：某示例客户\n'
+    out=('# 一、交付概述\n\n本次按项目选择交付以下实际生成的文件；未列出的文档不属于本次范围。\n\n'
+         +'## 项目基本信息\n'+project_info
+         +'\n# 二、交付文档清单\n\n本次交付共 %d 份文件。\n\n'%len(names)
+         +'| # | 文件名 | 格式 |\n| --- | --- | --- |\n'+table
+         +'\n\n# 三、文档验收记录\n\n| 文件名 | 接收人 | 接收日期 | 签字 |\n| --- | --- | --- | --- |\n'
+         +'\n'.join('| %s | | | |'%name for name in names)
+         +'\n\n# 四、交付核对\n\n核对实际文件、项目节点/IP/端口与来源核验说明；凭据表另行加密保管。\n')
 __op=os.path.join(_OUT,'chk_%s.md'%tier); open(__op,'w',encoding='utf-8').write(out); print('OUT:'+__op)
 # 校验
 import re as _r

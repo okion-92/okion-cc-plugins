@@ -1,5 +1,7 @@
 # 硬约束清单（生成前必读）
 
+> 本文中的节点数与固定版本是历史标准模板口径。实际项目必须以本次官方来源与用户最终节点清单核定；已知旧基线有专业版 26/29 等冲突，不能把其中一个数字强套到项目。生成前落实项目覆盖并封存来源核验记录。
+
 > 这些是“错一次就返工”的规则。生成任何文档前先过一遍本清单。
 
 ## A. 命名规范（输出文件）
@@ -87,5 +89,5 @@
 - K8s：精简版 1 主 1 从，**必须移除 Master 污点**（节点不够）；Nginx 单节点无 VIP。
 - 端口：MinIO 9011、File 9000（单节点）；其余端口号与集群版一致。
 - 架构图基底：精简版用 architecture-base-streamlined.svg。
-- source-map：精简版用 `s_` 前缀的单节点版链接（mongodb/4.4/standalone、mysql-8.0、minio-single、file/v2/single-node、single-master-deployment 等）。
+- source-map：精简版用 `s_` 前缀的单节点版链接（mongodb/4.4/standalone、mysql-8.4、minio-single、file/v2/single-node、single-master-deployment 等）。具体版本与安装包每次以对应专属页实际内容为准。
 - 出厂快照：deploy_streamlined（基于真实重构的精简版部署文档）。

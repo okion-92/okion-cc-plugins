@@ -5,6 +5,8 @@
 #   场景 A/B 仅 pro/std 需要(默认 B)；outdir 默认当前目录；date 默认 2026/06/22(交付日期,按需传)
 # 前置: skill 根目录 `npm install docx`; `pip install openpyxl pymupdf python-docx`; 系统有微软雅黑/Consolas。
 import os, sys, subprocess, shutil
+from source_preflight import require_preflight
+require_preflight(kind='deploy', version=(sys.argv[1].lower() if len(sys.argv)>1 else 'pro'))
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SK   = os.path.dirname(_HERE)

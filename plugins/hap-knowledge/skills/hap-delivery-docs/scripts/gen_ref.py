@@ -3,6 +3,8 @@
 # 内容来自官方链接（FAQ 5 页 / 资源 4 页），格式同其他交付文档（render_deploy.js + 封面）。
 # 用法: python gen_ref.py <faq|resource> [outdir] [date]
 import os, sys, subprocess
+from source_preflight import require_preflight
+require_preflight(kind=(sys.argv[1].lower() if len(sys.argv)>1 else 'faq'))
 _HERE=os.path.dirname(os.path.abspath(__file__)); _SK=os.path.dirname(_HERE); _SRC=os.path.join(_HERE,'ref_src')
 kind=sys.argv[1].lower() if len(sys.argv)>1 else 'faq'
 assert kind in ('faq','resource'), "类型必须是 faq|resource"

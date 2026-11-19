@@ -2,6 +2,8 @@
 # HAP 数据迁移文档一键生成（确定性，跨机一致；不分场景）。
 # 用法: python gen_mig.py <std|pro|lite> [outdir] [date]
 import os, sys, subprocess
+from source_preflight import require_preflight
+require_preflight(kind='migration', version=(sys.argv[1].lower() if len(sys.argv)>1 else 'std'))
 _HERE=os.path.dirname(os.path.abspath(__file__)); _SK=os.path.dirname(_HERE)
 _WORK=os.path.join(_HERE,'mig_src','_work'); os.makedirs(_WORK,exist_ok=True)
 ver=sys.argv[1].lower() if len(sys.argv)>1 else 'std'

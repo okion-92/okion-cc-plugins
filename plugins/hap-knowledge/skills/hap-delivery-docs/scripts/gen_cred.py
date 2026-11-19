@@ -1,5 +1,7 @@
 # 凭据登记表(基于固化部署基线,参数化 5 份)。用法: gen_cred.py <std|pro|lite> [A|B] <outdir>
 import openpyxl, sys, os
+from source_preflight import require_preflight
+require_preflight(kind='cred', version=(sys.argv[1].lower() if len(sys.argv)>1 else 'pro'))
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 ver=sys.argv[1] if len(sys.argv)>1 else 'pro'
 scene=(sys.argv[2] if len(sys.argv)>2 and sys.argv[2] in ('A','B') else '')

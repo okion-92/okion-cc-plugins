@@ -1,6 +1,8 @@
 # 参数化生成 HAP 架构图(树形图：请求主干 → K8s 枢纽(ns default/flink) → 扇出各后端 + Flink 数据集成流)。
 # 用法: build_arch2.py <std|pro|lite> [A|B] <outdir>
 import sys, fitz, os
+from source_preflight import require_preflight
+require_preflight(kind='arch', version=(sys.argv[1].lower() if len(sys.argv)>1 else 'std'))
 ver=sys.argv[1]; scene=(sys.argv[2] if len(sys.argv)>2 and sys.argv[2] in ('A','B') else '')
 outdir=sys.argv[-1] if len(sys.argv)>2 else '.'
 if ver=='lite': scene=''

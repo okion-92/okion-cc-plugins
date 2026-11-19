@@ -1,7 +1,7 @@
 # 模板：部署实施文档（集群标准版/专业版）
 
-> 结构骨架 + 章节→来源映射 + A/B 分支点。正文内容运行时由 web_fetch 拉取（source-map.md），出厂快照（source-cache/deploy_sceneA.json / deploy_sceneB.json）兜底。
-> 生成方式：编辑既有素材 docx（unpack→改XML→pack）或用 docx-js 新建。优先以出厂快照素材为基底替换参数，再按 web_fetch 最新内容增量更新变化章节。
+> 结构骨架 + 章节→来源映射 + A/B 分支点。正文技术内容生成前按 source-map.md 的实际链接校准，出厂快照（source-cache/deploy_sceneA.json / deploy_sceneB.json）仅做断网兜底。
+> 生成方式：保留现有 docx-js/基线渲染管线与 Word 样式；链接内容变化时只更新对应基线章节，不用网页样式直接覆盖 Word 模板。
 
 ## 文档元信息（以客户参考文档 final/files/*.docx 为格式基准，2026-06 校准）
 - 标题：`部署实施文档（集群专业版 · 场景 B）`、`部署实施文档（集群标准版 · 场景 A）` 等——**标准/专业版正文标题、封面、页眉页脚、文件名都带场景 A/B**（客户实际交付即如此：文件名 `HAP部署实施文档_集群专业版_场景B.docx`）。精简版不带场景。
@@ -39,8 +39,8 @@
 
 > 标准版章节同序；精简版见文末（单节点、不分 A/B）。组装脚本参考：`work/restructure_deploy.py`（把分组式 md 重构为每组件 H1）。
 
-## 内容与配置规则（**内容以官方 web_fetch 实拉为准**）
-- 正文命令/配置一律 **web_fetch 拉官方页**（source-map.md 的 URL，干净带围栏代码），把示例 IP/密码替换为本套参数 / `<强密码>`；source-cache 快照仅离线兜底（快照命令被压平，不可直接用）。
+## 内容与配置规则（**内容以官方实际链接为准**）
+- 正文命令/配置一律用当前可用的网页读取工具拉取 source-map.md 的官方 URL，把示例 IP/密码替换为本套参数 / `<强密码>`；source-cache 快照仅离线兜底（快照命令被压平，不可直接用）。
 - **多节点组件逐节点列完整配置**：MySQL my.cnf（3 份，差 server-id/report_host/local_address）、Kafka server.properties（3 份，差 broker.id/advertised.listeners）、ES elasticsearch.yml（3 份，差 node.name/publish_host）、Redis（Master + 2×Slave 各一份完整 conf，从节点带 slaveof）。**不要「一份配置 + 文字描述差异」**。
 - **s3-config.json 每节点指向本机 MinIO**（对象存储节点 .x1→9011 / .x2→9012 / .x3→9013 / .x4→9014），不是都指向同一节点（gen_minio_file.py 已实现）。
 
@@ -69,7 +69,7 @@ docker, mongodb, mysql_mgr, redis, kafka, es, minio, file_preconf, file_multinod
 - 走单节点架构，**不分场景 A/B**，6 节点。规则见 reference/streamlined-vs-cluster.md。
 - **章节骨架同集群版的「每组件一个 H1」18 章结构**（与客户参考 `final/files/HAP部署实施文档_集群精简版.docx` 一致）：文档说明 → 一、服务器资源清单 → 二、操作系统初始化 → 三、Docker 安装 → 四、MongoDB 单节点 → 五、MySQL 单节点 → 六、Redis 单节点 → 七、Kafka 单节点 → 八、ES 单节点 → 九、MinIO 单节点 → 十、HAP 文件服务单节点 → 十一、上传预置文件 → 十二、K8s 单 Master（**含移除 Master 污点**）→ 十三、Istio → 十四、HAP 微服务 → 十五、Flink → 十六、Nginx（单节点无 VIP）→ 十七、监控 → 十八、部署后验收。
 - 节点：Nginx .20 / K8s .21·.22 / 中间件 .51（Kafka+ES+MinIO+File 共置）/ 数据库 .31（MySQL+MongoDB+Redis 共置）/ Flink .30。
-- 配置走 `s_` 前缀单节点链接（web_fetch 实拉、全量参数化）：MySQL 单实例直连 3306（systemd 参数内联，无 my.cnf 文件、无 MGR/Router）、MongoDB 无副本集无 keyFile、Redis 无哨兵、Kafka replication=1 / zookeeper.connect=127.0.0.1、ES `discovery.type=single-node` 且 transport SSL 关闭、MinIO 单服务 9011、File 单实例 9000（ENV_FILE_CACHE 指 redis）、ConfigMap 用单节点直连地址。
+- 配置走 `s_` 前缀单节点链接（实拉、全量参数化）：MySQL 单实例直连 3306，其 `my.cnf`、systemd、初始化和验证步骤必须整体跟随 MySQL 8.4 专属页，不得沿用旧的“无 my.cnf / systemd 参数内联”假设；MongoDB 无副本集无 keyFile、Redis 无哨兵、Kafka replication=1 / zookeeper.connect=127.0.0.1、ES `discovery.type=single-node` 且 transport SSL 关闭、MinIO 单服务 9011、File 单实例 9000（ENV_FILE_CACHE 指 redis）、ConfigMap 用单节点直连地址。
 - 生成器：`work/build_streamlined.py`（直接产出 18 章 markdown，无需 restructure，因单节点无组件拆分）。
 - 命名：`HAP部署实施文档_集群精简版.docx`（不带场景）。
 

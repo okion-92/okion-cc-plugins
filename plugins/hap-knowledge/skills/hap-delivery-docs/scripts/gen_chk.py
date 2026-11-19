@@ -2,6 +2,8 @@
 # HAP 交付清单一键生成（确定性，跨机一致）。客户名为占位「某示例客户」，交付时改。
 # 用法: python gen_chk.py <std|pro|lite> [A|B] [outdir] [date]
 import os, sys, subprocess
+from source_preflight import require_preflight
+require_preflight(kind='checklist', version=(sys.argv[1].lower() if len(sys.argv)>1 else 'std'))
 _HERE=os.path.dirname(os.path.abspath(__file__)); _SK=os.path.dirname(_HERE)
 _WORK=os.path.join(_HERE,'chk_src','_work'); os.makedirs(_WORK,exist_ok=True)
 ver=sys.argv[1].lower() if len(sys.argv)>1 else 'std'

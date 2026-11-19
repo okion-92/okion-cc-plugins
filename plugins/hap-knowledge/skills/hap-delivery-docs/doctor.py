@@ -42,7 +42,7 @@ print("%s Consolas       %s" % (ok(co), "consola 在" if co else "缺（代码�
 if not ya: fail.append("微软雅黑 msyh")
 
 # 5) 关键脚本与基线
-need = ["gen_from_input.py","make_input_template.py","gen_deploy.py","gen_ops.py","gen_mig.py",
+need = ["gen_from_input.py","make_input_template.py","source_preflight.py","fetch_diff.py","gen_deploy.py","gen_ops.py","gen_mig.py",
         "gen_chk.py","gen_ref.py","gen_arch.py","gen_cred.py","render_deploy.js","inject_cover.py"]
 miss = [n for n in need if not os.path.isfile(os.path.join(SC,n))]
 print("%s 驱动/支撑脚本 %s" % (ok(not miss), "齐（%d 个）"%len(need) if not miss else "缺: "+", ".join(miss)))
@@ -52,6 +52,27 @@ srcs = ["deploy_src/deploy_head.md","ops_src/ops_base.md","mig_src/mig_base.md",
 msrc = [s for s in srcs if not os.path.isfile(os.path.join(SC,s))]
 print("%s 固化基线源   %s" % (ok(not msrc), "齐" if not msrc else "缺: "+", ".join(msrc)))
 if msrc: fail.append("基线缺失")
+
+# 6) 关键来源映射（不联网，只防止 Skill 回退到已知旧路径）
+source_map = os.path.join(ROOT, "reference", "source-map.md")
+try:
+    with open(source_map, encoding="utf-8") as f:
+        sm = f.read()
+    required_sources = [
+        "mysql/mysql-8.4/",
+        "mysql/mysql-8.4/mgr/",
+        "elasticsearch/",
+        "elasticsearch/elasticsearch-cluster/",
+    ]
+    missing_sources = [s for s in required_sources if s not in sm]
+    old_mysql = "mysql/mysql-8.0" in sm
+    source_ok = not missing_sources and not old_mysql
+    detail = "关键路径齐" if source_ok else "缺/旧: " + ", ".join(missing_sources + (["mysql/mysql-8.0"] if old_mysql else []))
+    print("%s 官方来源映射 %s" % (ok(source_ok), detail))
+    if not source_ok: fail.append("来源映射过期")
+except Exception as e:
+    print("%s 官方来源映射 无法读取: %s" % (ok(False), e))
+    fail.append("来源映射无法读取")
 
 print("-"*56)
 if fail:
