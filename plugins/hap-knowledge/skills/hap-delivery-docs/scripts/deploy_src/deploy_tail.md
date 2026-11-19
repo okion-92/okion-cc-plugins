@@ -260,7 +260,7 @@ kubectl get pod -o wide
 # 十、Flink 部署（数据同步节点 192.168.1.81 / .82 / .83）
 
 > 原文链接：https://docs-pdop.mingdao.com/deployment/cluster/installation/flink
-> Flink 即 HDP 超级数据平台，承载聚合表 / 数据集成 / 超级数据平台计算。
+> Flink 为聚合表 / 数据集成及 HDP 提供计算能力。HDP 独立服务需在入参中另行启用，不能以完成 Flink 部署代替 HDP 服务部署。
 
 ## 10.1 导入镜像
 

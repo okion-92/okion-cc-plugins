@@ -46,6 +46,8 @@ python scripts/source_preflight.py prepare --version std --outputs arch --input 
 
 ## 按需生成
 
+新增能力读取入参的「可选模块」页，缺页/空白/无均不启用。已选技术模块须由助手按照 [可选模块交付规则](optional-modules.md) 完成项目章节 JSON，并在封存时传 `seal --module-content 项目目录/可选模块内容.json`；项目内容哈希也绑定到核验记录。完整数据库模式替换必须包含受影响文档和凭据的替代内容。两个可选表单不需要技术章节 JSON。
+
 ```text
 python scripts/gen_from_input.py 入参.xlsx 输出目录 --only arch --architecture 项目.svg --preflight 来源核验.json
 python scripts/gen_from_input.py 入参.xlsx 输出目录 --only deploy,ops,migration,checklist --preflight 来源核验.json

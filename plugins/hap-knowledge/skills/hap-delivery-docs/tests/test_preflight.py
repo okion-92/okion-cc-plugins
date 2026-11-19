@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import openpyxl
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
@@ -29,7 +30,9 @@ class PreflightTests(unittest.TestCase):
         self.baseline = self.root/'scripts/ref_src/resource_body.md'
         self.baseline.write_text('mysql-8.4.8-linux.tar.xz', encoding='utf-8')
         self.input = self.root/'input.xlsx'
-        self.input.write_bytes(b'fixture input; no customer data')
+        wb = openpyxl.Workbook()
+        wb.active['A1'] = 'fixture input; no customer data'
+        wb.save(self.input)
         self.report = self.root/'report.json'
         self.bundle = self.root/'bundle.json'
         pages = {url: {'content': 'Official-page test fixture only. Package: mysql-8.4.8-linux.tar.xz',
@@ -148,6 +151,20 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(meta['versions']['hap'], ['7.3.1'])
         self.assertEqual(meta['versions']['mysql'], ['8.4.8'])
         self.assertEqual(meta['versions']['istio'], ['1.29.2'])
+
+    def test_optional_component_images_and_external_database_packages_are_recorded(self):
+        meta = _extract_metadata('mingdaoyun-milvus:v2.6.17 mingdaoyun-milvus-operator:v1.3.6 '
+            'mingdaoyun-etcd-linux-arm64-v3.6.11.tar.gz mingdaoyun-hdp:1.1.0 '
+            'mingdaoyun-computinginstance:7.4.4 '
+            'https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-debian12-8.3.13.tgz '
+            'https://downloads.mongodb.com/compass/mongosh-2.14.1-linux-x64.tgz')
+        self.assertEqual(meta['versions']['milvus'], ['2.6.17'])
+        self.assertEqual(meta['versions']['milvus_operator'], ['1.3.6'])
+        self.assertEqual(meta['versions']['etcd'], ['3.6.11'])
+        self.assertEqual(meta['versions']['hdp'], ['1.1.0'])
+        self.assertEqual(meta['versions']['computinginstance'], ['7.4.4'])
+        self.assertEqual(meta['versions']['mongodb'], ['8.3.13'])
+        self.assertEqual(len(meta['package_urls']), 2)
 
 
 if __name__ == '__main__':

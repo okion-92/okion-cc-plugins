@@ -13,6 +13,7 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 
 from fetch_diff import _extract_metadata
+import optional_modules as optional
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUTS = {'deploy', 'ops', 'migration', 'arch', 'cred', 'faq', 'resource', 'checklist'}
@@ -135,7 +136,7 @@ def baseline_hashes(root=None):
     return result
 
 
-def source_urls(version, selected, brand):
+def source_urls(version, selected, brand, modules=None):
     selected = outputs(selected)
     mapping = dict(re.findall(r'^\|\s*(\w+)\s*\|[^|]+\|\s*(https://[^\s|]+)',
                               (ROOT/'reference/source-map.md').read_text(encoding='utf-8'), re.M))
@@ -149,6 +150,13 @@ def source_urls(version, selected, brand):
         needed.update(k for k in mapping if k.startswith('res_'))
     replace = lambda url: url.replace('.mingdao.com', '.nocoly.com') if brand == 'nocoly' else url
     result = {k: replace(mapping[k]) for k in sorted(needed)}
+    # Topology replacements must not collect a conflicting default installation page.
+    for module, keys in {'mysql_mode': ('mysql_mgr', 's_mysql'), 'redis_mode': ('redis', 's_redis'),
+                         'mongodb83': ('mongodb', 's_mongodb')}.items():
+        if module in (modules or {}):
+            for key in keys:
+                result.pop(key, None)
+    result.update({key: replace(url) for key, url in optional.source_urls(modules or {}).items()})
     result['index_cluster'] = replace('https://docs-pdop.mingdao.com/deployment/cluster/')
     result['index_components'] = replace('https://docs-pd.mingdao.com/deployment/component/')
     return result
@@ -170,7 +178,9 @@ def prepare(args):
     bundle = {}
     if args.bundle:
         bundle = {url_key(k): v for k, v in json.loads(Path(args.bundle).read_text(encoding='utf-8')).items()}
-    urls = source_urls(args.version, selected, args.brand)
+    modules = optional.read_modules(args.input)
+    optional.validate_architecture(modules, args.architecture, selected)
+    urls = source_urls(args.version, selected, args.brand, modules)
     overrides = dict(item.split('=', 1) for item in args.source)
     pins = dict(item.split('=', 1) for item in args.pin)
     if (overrides or pins) and not args.reason.strip():
@@ -206,6 +216,7 @@ def prepare(args):
         pages.append(page)
     record = {'schema': 1, 'created_at': now(), 'state': 'prepared', 'version': args.version, 'brand': args.brand,
               'outputs': selected, 'input_sha256': digest(Path(args.input).read_bytes()) if args.input else None,
+              'modules': modules,
               'architecture_sha256': digest(Path(args.architecture).read_bytes()) if args.architecture else None,
               'pins': pins, 'project_source_overrides': overrides, 'project_reason': args.reason,
               'pages': pages, 'required_keys': sorted(urls), 'errors': errors}
@@ -221,8 +232,12 @@ def read_record(path):
         raise ValueError('来源记录缺失、失败或超过24小时，重新 prepare')
     if {p['key'] for p in record['pages']} != set(record['required_keys']):
         raise ValueError('来源范围不完整')
-    if set(record['required_keys']) != set(source_urls(record['version'], record['outputs'], record['brand'])):
+    optional.validate_selections(record.get('modules', {}))
+    if set(record['required_keys']) != set(source_urls(record['version'], record['outputs'], record['brand'], record.get('modules'))):
         raise ValueError('来源记录与本次产物要求不一致')
+    binding = record.get('module_content')
+    if binding and digest(Path(binding['file']).read_bytes()) != binding['sha256']:
+        raise ValueError('可选模块内容变化，请重新核对并 seal')
     for page in record['pages']:
         url_key(page['url'])
         if page['status'] == 'live' and not fresh(page['fetched_at']):
@@ -238,6 +253,8 @@ def seal(args):
         raise ValueError('必须记录版本、部署步骤和项目覆盖的核对说明')
     if any(p['status'] == 'offline' for p in record['pages']) and not args.allow_offline:
         raise ValueError('存在离线来源，须明确 --allow-offline 并在交付说明中列明')
+    module_path = getattr(args, 'module_content', None) or (record.get('module_content') or {}).get('file')
+    content = optional.validate_content(record, module_path)
     targets = {
         'deploy': ['deploy_src', 'build_streamlined.py' if record['version']=='lite' else 'build_scene.py',
                    'build_standard.py', 'gen_minio_file.py', 'fix_monitor.py'],
@@ -252,23 +269,34 @@ def seal(args):
             paths.update(path.rglob('*.md') if path.is_dir() else [path])
     baselines = '\n'.join(p.read_text(encoding='utf-8', errors='replace') for p in paths
                           if p.is_file() and not {'_work', '__pycache__'} & set(p.parts))
+    if content:
+        baselines += '\n'+json.dumps(content, ensure_ascii=False)
     stored = _extract_metadata(baselines)['versions']
     checked_pins = set()
     for page in record['pages']:
         if page['key'].startswith('index_'):
             continue
+        page_stored = stored
+        if page['key'].startswith('optional_') and content:
+            module = page['key'][len('optional_'):].rsplit('_', 1)[0]
+            relevant = json.dumps(content['modules'].get(module, {}), ensure_ascii=False)
+            if module in optional.VARIANTS:
+                relevant += json.dumps(content.get('documents', {}), ensure_ascii=False)
+            page_stored = _extract_metadata(relevant)['versions']
         for component, versions in page['versions'].items():
             checked_pins.add(component)
             wanted = record.get('pins', {}).get(component)
             if wanted and wanted not in versions:
                 raise ValueError(f'{component} 指定版本 {wanted} 未在相应专属页面明示，请提供匹配的 --source')
-            if wanted and wanted not in stored.get(component, []):
+            if wanted and wanted not in page_stored.get(component, []):
                 raise ValueError(f'{component} 基线没有项目指定版本 {wanted}')
-            if not wanted and component in stored and max(map(version_key, stored[component])) < max(map(version_key, versions)):
+            if not wanted and component in page_stored and max(map(version_key, page_stored[component])) < max(map(version_key, versions)):
                 raise ValueError(f'{component} 基线版本落后于 {page["url"]}，先完整更新下载/配置/systemd/初始化/验证步骤')
     if set(record.get('pins', {})) - checked_pins:
         raise ValueError('项目锁定版本未在本次专属来源中发现')
     record.update(state='reviewed', reviewed_at=now(), review_note=args.note, baselines=baseline_hashes())
+    if content:
+        record['module_content'] = {'file': str(Path(module_path).resolve()), 'sha256': digest(Path(module_path).read_bytes())}
     Path(args.report).write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding='utf-8')
     print('已绑定来源、基线和入参；生成时会重新检查这些指纹')
 
@@ -288,6 +316,9 @@ def require_preflight(kind=None, version=None, selected=None, input_path=None, a
     inp = input_path or os.environ.get('HAP_DELIVERY_INPUT')
     if (digest(Path(inp).read_bytes()) if inp else None) != record.get('input_sha256'):
         raise ValueError('入参与来源记录不一致，重新 prepare')
+    if optional.read_modules(inp) != record.get('modules', {}):
+        raise ValueError('可选模块与核验记录不一致，重新 prepare')
+    optional.validate_content(record, (record.get('module_content') or {}).get('file'))
     if architecture is not None and digest(Path(architecture).read_bytes()) != record.get('architecture_sha256'):
         raise ValueError('项目架构图与来源记录不一致，重新 prepare')
     return record
@@ -311,6 +342,7 @@ def main():
     review = sub.add_parser('seal')
     review.add_argument('--report', required=True)
     review.add_argument('--note', required=True)
+    review.add_argument('--module-content', help='按本次已选模块从当前官网编写并核对的项目内容 JSON')
     review.add_argument('--allow-offline', action='store_true')
     args = parser.parse_args()
     try:

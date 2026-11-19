@@ -30,7 +30,8 @@ from datetime import datetime, timezone
 CACHE_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "reference", "source-cache"))
 
 PACKAGE_URL_RE = re.compile(
-    r"https://pdpublic\.(?:mingdao|nocoly)\.com/private-deployment/offline/"
+    r"https://(?:pdpublic\.(?:mingdao|nocoly)\.com/private-deployment/offline/|"
+    r"fastdl\.mongodb\.org/linux/|downloads\.mongodb\.com/compass/)"
     r"[A-Za-z0-9._/+%-]+",
     re.IGNORECASE,
 )
@@ -50,6 +51,16 @@ VERSION_PATTERNS = {
     "hap": re.compile(r"mingdaoyun-(?:hap|community):v?(\d+\.\d+\.\d+)", re.IGNORECASE),
     "file": re.compile(r"mingdaoyun-file[:/-]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
     "minio": re.compile(r"RELEASE\.(\d{4}-\d{2}-\d{2}T[\d-]+Z)", re.IGNORECASE),
+    "etcd": re.compile(r"etcd(?:-linux-(?:amd64|arm64))?[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "milvus_operator": re.compile(r"milvus-operator(?::v?|(?:-linux-(?:amd64|arm64)-v?))(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "milvus": re.compile(r"milvus(?::v?|(?:-linux-(?:amd64|arm64)-v?))(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "hdp": re.compile(r"mingdaoyun-hdp(?::v?|(?:-linux-(?:amd64|arm64)-v?))(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "computinginstance": re.compile(r"mingdaoyun-computinginstance(?::v?|(?:-linux-(?:amd64|arm64)-v?))(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "alertmanager": re.compile(r"alertmanager[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "prometheusalert": re.compile(r"prometheusalert[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "kibana": re.compile(r"kibana[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "victorialogs": re.compile(r"victoria-logs(?:-linux-(?:amd64|arm64))?[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "promtail": re.compile(r"promtail(?:-linux-(?:amd64|arm64))?[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
 }
 
 

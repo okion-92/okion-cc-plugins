@@ -47,6 +47,8 @@ else:
     fname="HAP运维文档_%s_场景%s.docx"%(VLABEL,scene)
 
 # 3) 渲染 + 封面
+from optional_modules import materialize_markdown
+md = materialize_markdown(md, 'ops')
 outdoc=os.path.join(outdir,fname)
 renv=dict(os.environ, COVER_TITLE=title, COVER_EN=en, COVER_DATE=date)
 r=subprocess.run(["node", os.path.join(_HERE,'render_deploy.js'), md, outdoc, title], cwd=_SK, env=renv)

@@ -20,6 +20,8 @@ md=[l[4:] for l in r.stdout.splitlines() if l.startswith('OUT:')][-1]
 title="数据迁移文档（单机迁移%s）"%vlabel
 ensub="HAP Data Migration Guide (Standalone to %s Cluster)"%en
 fname="HAP数据迁移文档_单机迁移%s.docx"%vlabel
+from optional_modules import materialize_markdown
+md = materialize_markdown(md, 'migration')
 outdoc=os.path.join(outdir,fname)
 renv=dict(os.environ,COVER_TITLE=title,COVER_EN=ensub,COVER_DATE=date)
 if subprocess.run(["node",os.path.join(_HERE,'render_deploy.js'),md,outdoc,title],cwd=_SK,env=renv).returncode!=0:

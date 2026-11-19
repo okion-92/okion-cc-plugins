@@ -61,6 +61,8 @@ else:
     fname = "HAP部署实施文档_集群精简版.docx"
 
 # 3) 渲染 docx + 注入封面
+from optional_modules import materialize_markdown
+md = materialize_markdown(md, 'deploy')
 outdoc = os.path.join(outdir, fname)
 env = dict(os.environ, COVER_TITLE=title, COVER_EN=en, COVER_DATE=date)
 r = subprocess.run(["node", os.path.join(_HERE,'render_deploy.js'), md, outdoc, title], cwd=_SK, env=env)

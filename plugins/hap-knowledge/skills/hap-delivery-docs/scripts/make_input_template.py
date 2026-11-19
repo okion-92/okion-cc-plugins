@@ -2,6 +2,7 @@
 import openpyxl, sys
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
+from optional_modules import MODULES
 out=sys.argv[1] if len(sys.argv)>1 else 'HAP交付入参模板.xlsx'
 F="Microsoft YaHei"
 H=PatternFill("solid",fgColor="1E5BA8"); HF=Font(name=F,bold=True,color="FFFFFF",size=10.5)
@@ -37,14 +38,15 @@ guide=[
  "  3) 「④ 凭据清单」：填每项「实际值」。注意「一致性」列——同一密码用于多处时必须保持一致（部署/迁移时同样要求）。",
  "  4) 「⑤ 端口与默认值」：一般无需改（如确有变更再填覆盖值）。",
  "  5) 「⑥ 高级可选」：时区/子路径/双地址/证书等个性化项，用不到就留空。",
- "  6) 最后一个 Sheet「⑦ 自定义项描述」：填写本项目特殊约束；生成文档前必须先读取并据此调整。",
+ "  6) 「⑦ 可选模块」：新增能力默认均为「无」；需要时选择模式并填写节点/端点，依赖项须显式选择。",
+ "  7) 最后一个 Sheet「⑧ 自定义项描述」：填写本项目特殊约束；生成文档前必须先读取并据此调整。",
  "",
  "生成时的替换规则（你不用管，交回我处理）：",
  "  · 占位 IP 192.168.1.x → 你填的实际 IP；hap.domain.com → 实际域名；某示例客户 → 实际客户名。",
  "  · <强密码> / mingdao / storage 等 → 你填的实际凭据；凭据实际值进《凭据登记表》对应列并提示加密保管。",
  "",
  "重要：",
- "  · 只填你所选版本用到的行（精简版 6 节点 / 标准版 17 / 专业版 29）。多余行可留空。",
+ "  · 节点行和固定数量为历史拓扑示例；按项目实际节点填写，可选模块新增节点需另填。",
  "  · 场景仅标准/专业版区分 A（独立 docker swarm）/ B（同一 Swarm·Node01 编排）；精简版选「不适用」。",
  "  · 凭据为敏感信息：本表填好后请加密保管，勿随文档明文外发。",
 ]
@@ -146,6 +148,14 @@ creds=[
  ("Keepalived auth_pass","keepalived.conf（标准/专业）","HAP-Nginx-Keepalived-Auth","两 Nginx 节点一致（约束 H）；精简版不需要"),
  ("Grafana 登录密码","监控 Grafana admin","<强密码>","首次登录改密"),
  ("HAP 平台超级管理员","首次 Web 初始化创建","<账号> / <密码>","系统最高权限，妥善保管"),
+ ("独立 etcd root 密码","仅选独立 etcd 时填写；Milvus 依赖使用相同认证","<强密码>","etcd 与客户端一致"),
+ ("Milvus 管理凭据","仅选 Milvus 时填写；按当前版本认证配置","<强密码>","Milvus 与 HAP 使用的认证一致"),
+ ("Milvus S3 AccessKey","Milvus 专用 S3 用户（可按项目复用已有用户）","<AccessKey>","与 S3 Secret 中的 accessKey 一致"),
+ ("Milvus S3 SecretKey","Milvus 专用 S3 密钥","<SecretKey>","与 S3 Secret 中的 secretKey 一致"),
+ ("HDP 数据库密码","仅选 HDP 时填写","<强密码>","HDP 数据库授权与连接配置一致"),
+ ("告警 Webhook","仅选告警通知时填写完整实际地址，包含的密钥为敏感信息","<Webhook>","实际值仅进入凭据表"),
+ ("Kibana 登录凭据","仅选 Kibana 时填写","<账号> / <密码>","与当前认证方案一致"),
+ ("VictoriaLogs 认证凭据","仅选日志服务且启用认证时填写","<账号> / <密码>","采集/查询认证按实际配置"),
 ]
 r=4
 for (k,d,ph,cons) in creds:
@@ -193,8 +203,21 @@ for (k,d,ex) in adv:
 for j,w in enumerate([24,40,28,28],1): ws.column_dimensions[chr(64+j)].width=w
 ws.freeze_panes="A4"
 
-# ===== Sheet ⑦ 自定义项描述（必须最后读取） =====
-ws=wb.create_sheet("⑦ 自定义项描述")
+# ===== Sheet ⑦ 可选模块（默认均为无） =====
+ws=wb.create_sheet("⑦ 可选模块")
+ws['A1']='可选模块（默认无；无=不增加该模块/不覆盖既有数据库模式）'; ws['A1'].font=tf
+ws['A2']='仅填写非敏感节点/端点和适用说明；密码、AK/SK、Webhook 密钥只填凭据清单。'
+header(ws,['模块 ID（勿改）','模块','选择（默认无）','节点 / 访问端点','适用性 / 依赖 / 项目约束'],3)
+for r,(key,(name,modes,urls,label)) in enumerate(MODULES.items(),4):
+    put(ws,r,[key,name,'无','',''],fillcols=(3,4,5))
+    dv=DataValidation(type='list',formula1='"'+','.join(['无']+modes)+'"',allow_blank=True)
+    dv.errorTitle='请选择有效模式'; dv.error='请使用下拉选项，留空等同于无。'; dv.showErrorMessage=True; dv.errorStyle='stop'
+    ws.add_data_validation(dv); dv.add('C%d'%r)
+for j,w in enumerate([25,28,30,48,65],1): ws.column_dimensions[chr(64+j)].width=w
+ws.freeze_panes='A4'
+
+# ===== Sheet ⑧ 自定义项描述（必须最后读取） =====
+ws=wb.create_sheet("⑧ 自定义项描述")
 ws["A1"]="自定义项描述（生成文档前必须先读取本 Sheet，并按描述调整）"; ws["A1"].font=tf
 header(ws,["项目","描述 / 约束","影响范围","处理状态（生成前填写）"],3)
 custom=[
@@ -208,6 +231,8 @@ for (k,d,scope,status) in custom:
 for j,w in enumerate([24,70,36,24],1): ws.column_dimensions[chr(64+j)].width=w
 ws.freeze_panes="A4"
 
+from pathlib import Path
+Path(out).parent.mkdir(parents=True, exist_ok=True)
 wb.save(out)
 print("生成:",out)
 for s in wb.sheetnames: print("  -",s)

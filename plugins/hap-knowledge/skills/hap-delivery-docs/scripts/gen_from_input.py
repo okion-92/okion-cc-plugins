@@ -109,6 +109,8 @@ for kind,script,params in [
         with fitz.open(target) as doc: doc[0].get_pixmap(matrix=fitz.Matrix(2,2)).save(target[:-4]+'.png')
     else:
         run(script,*params)
+from optional_modules import generate_records
+generate_records(OUT, selected, record.get('modules', {}))
 if 'checklist' in selected: run('gen_chk.py', VER, *sc, OUT)
 
 # ---------- 3. 占位替换 map（仅唯一安全 token；密码不入文档）----------
@@ -181,6 +183,8 @@ for f in files:
             v=ws.cell(r,c).value
             if isinstance(v,str): ws.cell(r,c).value=apply_text(v)        # IP/域名/客户名
         key=str(ws.cell(r,cKey).value or "")
+        if key.startswith('可选/'):
+            continue  # Module credentials have exact input keys, not legacy substring matching.
         for ck,subs in CRED_MATCH.items():
             if creds.get(ck) and any(s in key for s in subs):
                 ws.cell(r,cVal).value=str(creds[ck]).strip(); filled+=1; break

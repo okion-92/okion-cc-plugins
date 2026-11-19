@@ -29,6 +29,8 @@ else:
     title="交付清单（%s · 场景 %s）"%(vlabel,scene)
     ensub="HAP Delivery Checklist (%s Cluster · Scenario %s)"%(en,scene)
     fname="HAP交付清单_%s_场景%s.docx"%(vlabel,scene)
+from optional_modules import materialize_markdown
+md = materialize_markdown(md, 'checklist')
 outdoc=os.path.join(outdir,fname)
 renv=dict(os.environ,COVER_TITLE=title,COVER_EN=ensub,COVER_DATE=date)
 if subprocess.run(["node",os.path.join(_HERE,'render_deploy.js'),md,outdoc,title],cwd=_SK,env=renv).returncode!=0:

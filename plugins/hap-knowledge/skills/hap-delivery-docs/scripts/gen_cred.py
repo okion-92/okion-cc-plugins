@@ -90,6 +90,9 @@ if cluster:
     cons.append(("H","Keepalived 一致","两 Nginx 节点 keepalived.conf auth_pass、virtual_router_id 相同","HAP-Nginx-Keepalived-Auth"))
 
 # ---- 写 xlsx ----
+from optional_modules import configure_credentials, credential_values
+rows, cons = configure_credentials(rows, cons)
+optional_actuals = credential_values()
 F="Microsoft YaHei"
 hdrf=PatternFill("solid",fgColor="1E5BA8"); hdrft=Font(name=F,bold=True,color="FFFFFF",size=10.5)
 yfill=PatternFill("solid",fgColor="FFF6CC")
@@ -105,7 +108,7 @@ for j,c in enumerate(cols,1):
     cell=ws.cell(4,j,c); cell.fill=hdrf; cell.font=hdrft; cell.alignment=ctr; cell.border=bd
 r=5
 for i,(comp,node,port,user,key,ph,cfile,chap,dep) in enumerate(rows,1):
-    for j,v in enumerate([i,comp,node,port,user,key,ph,"",cfile,chap,dep],1):
+    for j,v in enumerate([i,comp,node,port,user,key,ph,optional_actuals.get(key,""),cfile,chap,dep],1):
         cell=ws.cell(r,j,v); cell.font=cf; cell.border=bd; cell.alignment=ctr if j in (1,4) else lft
         if j==8: cell.fill=yfill
     r+=1

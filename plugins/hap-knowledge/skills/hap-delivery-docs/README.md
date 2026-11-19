@@ -23,6 +23,8 @@ python scripts/source_preflight.py prepare --version std --input 已填入参.xl
 
 填写项目信息、节点 IP、凭据、端口及最后一个 Sheet 的自定义项。AI 读取来源正文，按最新适用组件版本完整调整相关基线，处理项目明确覆盖及来源冲突，保持模板版式，然后：
 
+「⑦ 可选模块」提供独立 etcd、Milvus、专属算力、HDP、告警、Kibana、VictoriaLogs、数据库替代模式及两类记录表，全部默认「无」，旧入参缺页也不启用。启用技术模块时，AI 按 [可选模块规则](reference/optional-modules.md) 完成项目章节和关联内容，`seal` 增加 `--module-content 项目目录/可选模块内容.json`；涉及架构图时同时绑定项目 SVG。公有云迁移不包含在扩展范围内。
+
 ```text
 python scripts/source_preflight.py seal --report 项目目录/来源核验.json --note "已核对版本、下载与部署步骤，并落实项目覆盖"
 python scripts/gen_from_input.py 已填入参.xlsx 项目目录 --preflight 项目目录/来源核验.json

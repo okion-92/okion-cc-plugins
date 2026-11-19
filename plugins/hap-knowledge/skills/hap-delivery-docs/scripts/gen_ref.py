@@ -15,6 +15,8 @@ M={'faq':('faq_body.md','常见故障处理','HAP Troubleshooting Guide','HAP常
    'resource':('resource_body.md','服务器资源要求','HAP Server Resource Requirements','HAP服务器资源要求.docx')}
 body,title,en,fname=M[kind]
 md=os.path.join(_SRC,body); outdoc=os.path.join(outdir,fname)
+from optional_modules import materialize_markdown
+md = materialize_markdown(md, kind)
 renv=dict(os.environ,COVER_TITLE=title,COVER_EN=en,COVER_DATE=date,PYTHONUTF8='1',PYTHONIOENCODING='utf-8')
 if subprocess.run(["node",os.path.join(_HERE,'render_deploy.js'),md,outdoc,title],cwd=_SK,env=renv).returncode!=0:
     sys.exit("render 失败（确认 skill 根目录已 npm install docx）")

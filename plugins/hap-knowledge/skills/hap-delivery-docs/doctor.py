@@ -42,7 +42,7 @@ print("%s Consolas       %s" % (ok(co), "consola 在" if co else "缺（代码�
 if not ya: fail.append("微软雅黑 msyh")
 
 # 5) 关键脚本与基线
-need = ["gen_from_input.py","make_input_template.py","source_preflight.py","fetch_diff.py","gen_deploy.py","gen_ops.py","gen_mig.py",
+need = ["gen_from_input.py","make_input_template.py","source_preflight.py","optional_modules.py","fetch_diff.py","gen_deploy.py","gen_ops.py","gen_mig.py",
         "gen_chk.py","gen_ref.py","gen_arch.py","gen_cred.py","render_deploy.js","inject_cover.py"]
 miss = [n for n in need if not os.path.isfile(os.path.join(SC,n))]
 print("%s 驱动/支撑脚本 %s" % (ok(not miss), "齐（%d 个）"%len(need) if not miss else "缺: "+", ".join(miss)))
