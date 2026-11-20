@@ -57,6 +57,8 @@ class Page(HTMLParser):
         self.links, self.all_text, self.main_text = [], [], []
         self.main_depth = 0
         self.hidden = 0
+        self.pre_depth = 0
+        self.pre_text = []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -64,18 +66,28 @@ class Page(HTMLParser):
             self.hidden += 1
         if tag in ('main', 'article'):
             self.main_depth += 1
+        if tag == 'pre':
+            self.pre_depth += 1
         if tag == 'a' and attrs.get('href'):
             self.links.append(attrs['href'])
-            if self.main_depth:
+            if self.main_depth and not self.pre_depth:
                 self.main_text.append(attrs['href'])
 
     def handle_endtag(self, tag):
+        if tag == 'pre':
+            self.pre_depth = max(0, self.pre_depth-1)
+            if not self.pre_depth and self.pre_text:
+                self.main_text.extend(['```', ''.join(self.pre_text).replace('\r\n', '\n'), '```'])
+                self.pre_text = []
         if tag in ('script', 'style'):
             self.hidden = max(0, self.hidden-1)
         if tag in ('main', 'article'):
             self.main_depth = max(0, self.main_depth-1)
 
     def handle_data(self, data):
+        if not self.hidden and self.main_depth and self.pre_depth:
+            self.pre_text.append(data)  # Syntax-highlight spans must retain spaces, indentation and line breaks.
+            return
         if not self.hidden and data.strip():
             self.all_text.append(data.strip())
             if self.main_depth:
@@ -157,6 +169,12 @@ def source_urls(version, selected, brand, modules=None):
             for key in keys:
                 result.pop(key, None)
     result.update({key: replace(url) for key, url in optional.source_urls(modules or {}).items()})
+    if set(selected) & {'deploy', 'arch', 'resource', 'checklist'}:
+        result['guide_deployment'] = replace('https://docs-pdop.mingdao.com/deployment/guide/')
+        result['guide_architecture'] = replace('https://docs-pdop.mingdao.com/deployment/cluster/architecture/')
+    if 'migration' in selected:
+        for key, path in [('guide', 'guide/'), ('private', 'p2p/'), ('steps', 'p2p/migdoc/')]:
+            result['migration_'+key] = replace('https://docs-pdop.mingdao.com/migration/'+path)
     result['index_cluster'] = replace('https://docs-pdop.mingdao.com/deployment/cluster/')
     result['index_components'] = replace('https://docs-pd.mingdao.com/deployment/component/')
     return result

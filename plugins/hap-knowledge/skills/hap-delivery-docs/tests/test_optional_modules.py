@@ -69,13 +69,31 @@ class OptionalTests(unittest.TestCase):
                     self.assertTrue(urls)
                     self.assertTrue(all(k.startswith('optional_'+key+'_') for k in urls))
         docker = mod.source_urls({'victorialogs':{'mode':'Docker'}})
-        self.assertTrue(any('victorialogs-docker' in u for u in docker.values()))
+        self.assertTrue(any('victorialogs-alloy-docker' in u for u in docker.values()))
         self.assertFalse(any('victorialogs-promtail' in u for u in docker.values()))
         urls = pre.source_urls('std',['deploy'],'mingdao',{'mysql_mode':{'mode':'主从'}})
         self.assertNotIn('mysql_mgr',urls)
         self.assertIn('optional_mysql_mode_1',urls)
         default = pre.source_urls('std',['deploy'],'mingdao')
         self.assertFalse(any(k.startswith('optional_') for k in default))
+        legacy = mod.source_urls({'victorialogs':{'mode':'Docker（Promtail，EOL）'}})
+        self.assertTrue(any('promtail-eol' in u for u in legacy.values()))
+        self.assertFalse(any('alloy' in u for u in legacy.values()))
+        migration = pre.source_urls('std',['migration'],'mingdao')
+        self.assertTrue({'migration_guide','migration_private','migration_steps'} <= migration.keys())
+        self.assertFalse(any('/s2p' in u for u in migration.values()))
+
+    def test_content_only_faq_is_not_silently_treated_as_a_form(self):
+        self.workbook([['k8s_faq','Kubernetes FAQ','启用','','']])
+        modules = mod.read_modules(self.input)
+        self.assertIn('k8s_faq',modules)
+        with self.assertRaisesRegex(ValueError,'JSON'):
+            mod.validate_content({'modules':modules,'outputs':['faq']},None)
+
+    def test_functional_record_includes_data_synchronization(self):
+        mod.generate_records(self.dir,['checklist'],{'functional_validation':{'mode':'启用'}})
+        wb = openpyxl.load_workbook(self.dir/'HAP业务功能验证记录.xlsx')
+        self.assertIn('数据同步（按项目功能范围）',[r[0] for r in wb.active.iter_rows(values_only=True)])
 
     def test_selected_content_cannot_be_missing_extra_or_mode_mismatched(self):
         record = {'modules':{'etcd':{'mode':'单节点','nodes':'node'}},'outputs':['deploy']}

@@ -17,12 +17,16 @@ MODULES = {
         '使用现有': [INSTALL+'etcd/']}, 'etcd'),
     'milvus': ('Milvus 向量检索', ['启用'], {'启用': [INSTALL+'milvus/']}, 'Milvus'),
     'compute': ('专属算力', ['启用'], {'启用': ['deployment/computing/', 'deployment/computing/deploy/']}, '专属算力'),
-    'hdp': ('HDP 独立服务', ['启用'], {'启用': ['deployment/hdp/deploy/']}, 'HDP'),
+    'hdp': ('HDP 独立服务', ['启用'], {'启用': ['deployment/hdp/', 'deployment/hdp/deploy/']}, 'HDP'),
     'alerts': ('监控告警通知', ['启用'], {'启用': [MONITOR+'alert/']}, 'Alertmanager'),
     'kibana': ('Kibana', ['启用'], {'启用': [MONITOR+'kibana/']}, 'Kibana'),
-    'victorialogs': ('VictoriaLogs 慢查询日志', ['二进制', 'Docker'], {
-        '二进制': [MONITOR+'victorialogs/', MONITOR+'victorialogs/mongodb-log-cut/', MONITOR+'victorialogs/victorialogs-promtail/'],
-        'Docker': [MONITOR+'victorialogs/', MONITOR+'victorialogs/mongodb-log-cut/', MONITOR+'victorialogs/victorialogs-docker/']}, 'VictoriaLogs'),
+    'victorialogs': ('VictoriaLogs 慢查询日志', ['二进制', 'Docker', '二进制（Promtail，EOL）', 'Docker（Promtail，EOL）'], {
+        '二进制': [MONITOR+'victorialogs/', MONITOR+'victorialogs/mongodb-log-cut/', MONITOR+'victorialogs/victorialogs-alloy/'],
+        'Docker': [MONITOR+'victorialogs/', MONITOR+'victorialogs/mongodb-log-cut/', MONITOR+'victorialogs/victorialogs-alloy-docker/'],
+        '二进制（Promtail，EOL）': [MONITOR+'victorialogs/promtail-eol/', MONITOR+'victorialogs/mongodb-log-cut/', MONITOR+'victorialogs/victorialogs-promtail/'],
+        'Docker（Promtail，EOL）': [MONITOR+'victorialogs/promtail-eol/', MONITOR+'victorialogs/mongodb-log-cut/', MONITOR+'victorialogs/victorialogs-promtail-docker/']}, 'VictoriaLogs'),
+    'grafana_upgrade': ('Grafana 升级', ['启用'], {'启用': [MONITOR+'upgrade/', MONITOR+'upgrade/grafana-upgrade/']}, 'Grafana'),
+    'k8s_faq': ('Kubernetes 专项 FAQ', ['启用'], {'启用': [INSTALL+'kubernetes/kubernetes-FAQs/']}, ''),
     'mysql_mode': ('MySQL 替代部署模式', ['主从'], {'主从': [INSTALL+'mysql/mysql-8.4/master-slave-8.4/']}, 'MySQL'),
     'redis_mode': ('Redis 替代部署模式', ['主从', '主从+Keepalived（EOL）'], {
         '主从': [INSTALL+'redis/master-slave/'],
@@ -34,6 +38,7 @@ MODULES = {
     'functional_validation': ('业务功能验证记录', ['启用'], {'启用': ['deployment/guide/']}, ''),
 }
 VARIANTS = {'mysql_mode', 'redis_mode', 'mongodb83'}
+FORMS = {'implementation_plan', 'functional_validation'}
 TEXT_OUTPUTS = {'deploy', 'ops', 'faq', 'resource', 'checklist'}
 
 
@@ -91,13 +96,18 @@ def validate_selections(modules):
 def check_markdown(text, key, commands=False):
     if not isinstance(text, str) or len(text.strip()) < 40 or re.search(r'\bTODO\b|\bTBD\b|待补充|稍后补充', text, re.I):
         raise ValueError('可选内容缺少完整正文: '+key)
-    if commands and '```' not in text:
+    fences = sum(line.lstrip().startswith('```') for line in text.splitlines())
+    if fences % 2:
+        raise ValueError('代码围栏未闭合，会破坏后续章节排版: '+key)
+    if commands and not fences:
         raise ValueError('可选部署章节必须包含已核对的命令/配置代码块: '+key)
+    if re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', text):
+        raise ValueError('正文含 Word XML 不支持的控制字符: '+key)
 
 
 def validate_content(record, path):
     modules = record.get('modules', {})
-    technical = {k for k in modules if MODULES[k][3]}
+    technical = set(modules) - FORMS
     if not technical:
         return None
     if not path:
@@ -118,7 +128,7 @@ def validate_content(record, path):
         for kind in selected & TEXT_OUTPUTS:
             if key in VARIANTS and kind != 'checklist':
                 continue  # The full replacement below already contains this database mode.
-            check_markdown(sections.get(kind), key+'/'+kind, commands=(kind == 'deploy' and modules[key]['mode'] != '使用现有'))
+            check_markdown(sections.get(kind), key+'/'+kind, commands=(kind == 'deploy' and key != 'k8s_faq' and modules[key]['mode'] != '使用现有'))
         if not item.get('review'):
             raise ValueError('缺少依赖、网络、适用性及验证步骤核对记录: '+key)
         if 'cred' in selected:
@@ -179,10 +189,23 @@ def materialize_markdown(path, kind):
         return path
     original = Path(path)
     body = content.get('documents', {}).get(kind, original.read_text(encoding='utf-8'))
+    additions = []
     for key, item in content.get('modules', {}).items():
         section = item.get('sections', {}).get(kind)
         if section and not (key in VARIANTS and kind in content.get('documents', {})):
-            body += '\n\n# 可选模块：'+MODULES[key][0]+'（'+item['mode']+'）\n\n'+section+'\n'
+            # Promote page H1s to module subheadings; leave shell comments inside fences intact.
+            inside = False
+            lines = []
+            for line in section.splitlines():
+                if line.lstrip().startswith('```'):
+                    inside = not inside
+                if not inside and line.startswith('# '):
+                    line = '#'+line
+                lines.append(line)
+            additions.append('\n\n# 可选模块：'+MODULES[key][0]+'（'+item['mode']+'）\n\n'+'\n'.join(lines)+'\n')
+    appendix = ''.join(additions)
+    anchor = re.search(r'(?m)^# [^\n]*(?:上线验证与验收|部署后验收)', body) if kind == 'deploy' else None
+    body = body[:anchor.start()]+appendix+'\n\n'+body[anchor.start():] if anchor else body+appendix
     work = original.parent if original.parent.name == '_work' else original.parent/'_work'
     work.mkdir(exist_ok=True)
     target = work/(original.stem+'_optional.md')
@@ -224,7 +247,7 @@ def generate_records(outdir, selected, modules):
         core += [MODULES[k][0]+'（'+v['mode']+'）' for k, v in modules.items() if MODULES[k][3] and k not in VARIANTS]
         tasks.append(('HAP组件实施进度表.xlsx', '实施进度', ['组件', '负责人', '开始时间', '计划完成时间', '实际完成时间', '组件验证结果', '备注'], core))
     if 'functional_validation' in modules and set(selected) & {'deploy', 'checklist'}:
-        features = ['动态发布', '任务创建', '日程创建', '附件上传', '附件预览', '附件下载', '应用创建', '工作表创建', '工作表数据新增', '工作表数据修改', '工作表数据删除', '工作流创建', '工作流启动', '工作流编辑', '工作流触发', '工作流停止', '工作流删除', '数据源添加（按项目功能范围）', '同步任务创建（按项目功能范围）']
+        features = ['动态发布', '任务创建', '日程创建', '附件上传', '附件预览', '附件下载', '应用创建', '工作表创建', '工作表数据新增', '工作表数据修改', '工作表数据删除', '工作流创建', '工作流启动', '工作流编辑', '工作流触发', '工作流停止', '工作流删除', '数据源添加（按项目功能范围）', '同步任务创建（按项目功能范围）', '数据同步（按项目功能范围）']
         features += [MODULES[k][0]+'专项验证' for k in modules if MODULES[k][3]]
         tasks.append(('HAP业务功能验证记录.xlsx', '功能验证', ['功能点', '验证操作', '预期结果', '实际结果', '附件/截图', '备注', '验证人', '验证日期'], features))
     from openpyxl.styles import Font, PatternFill, Alignment

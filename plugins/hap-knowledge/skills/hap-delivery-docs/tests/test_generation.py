@@ -112,7 +112,7 @@ class GenerationTests(unittest.TestCase):
         creds = wb['凭据清单']
         creds.cell(4,1,'独立 etcd root 密码'); creds.cell(4,5,'SYNTHETIC-secret-do-not-log')
         wb.save(self.input)
-        technical = {k:v for k,v in optional.read_modules(self.input).items() if optional.MODULES[k][3]}
+        technical = {k:v for k,v in optional.read_modules(self.input).items() if k not in optional.FORMS}
         self.arch.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500">'+''.join(
             '<text x="10" y="%d">%s</text>'%(30+i*30,optional.MODULES[k][3]) for i,k in enumerate(technical))+'</svg>', encoding='utf-8')
         def section(key, kind):
@@ -133,14 +133,15 @@ class GenerationTests(unittest.TestCase):
 
     def test_optional_modules_render_and_forms_join_actual_checklist(self):
         self.choose({'etcd':'单节点','milvus':'启用','compute':'启用','hdp':'启用','alerts':'启用','kibana':'启用',
-                     'victorialogs':'Docker','implementation_plan':'启用','functional_validation':'启用'})
+                     'victorialogs':'Docker','grafana_upgrade':'启用','k8s_faq':'启用',
+                     'implementation_plan':'启用','functional_validation':'启用'})
         out = self.generate('deploy,ops,arch,cred,faq,resource,checklist', custom=True)
         self.assertTrue((out/'HAP组件实施进度表.xlsx').is_file())
         self.assertTrue((out/'HAP业务功能验证记录.xlsx').is_file())
         for path in out.glob('HAP*.docx'):
             with zipfile.ZipFile(path) as archive:
                 body = archive.read('word/document.xml').decode('utf-8')
-            for key in ('etcd','milvus','compute','hdp','alerts','kibana','victorialogs'):
+            for key in ('etcd','milvus','compute','hdp','alerts','kibana','victorialogs','grafana_upgrade','k8s_faq'):
                 self.assertIn('OPTIONAL_'+key+'_',body)
             self.assertNotIn('SYNTHETIC-secret-do-not-log',body)
             if '交付清单' in path.name:

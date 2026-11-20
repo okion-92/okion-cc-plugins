@@ -166,6 +166,15 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(meta['versions']['mongodb'], ['8.3.13'])
         self.assertEqual(len(meta['package_urls']), 2)
 
+    def test_source_code_preserves_highlighted_yaml_indentation(self):
+        page = pre.Page()
+        page.feed('<main><article><h1>配置</h1><pre><code><span>storage:</span>\n'
+                  '<span>  data:</span>\n<span>    dir: /data/etcd</span>\n'
+                  '<span># shell comment</span>\n</code></pre><p>验证</p></article></main>')
+        body = '\n'.join(page.main_text)
+        self.assertIn('```\nstorage:\n  data:\n    dir: /data/etcd\n# shell comment\n\n```',body)
+        self.assertEqual(body.count('```'),2)
+
 
 if __name__ == '__main__':
     unittest.main()

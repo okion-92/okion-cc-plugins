@@ -61,6 +61,7 @@ VERSION_PATTERNS = {
     "kibana": re.compile(r"kibana[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
     "victorialogs": re.compile(r"victoria-logs(?:-linux-(?:amd64|arm64))?[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
     "promtail": re.compile(r"promtail(?:-linux-(?:amd64|arm64))?[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
+    "alloy": re.compile(r"alloy(?:-linux-(?:amd64|arm64))?[-_:]v?(\d+\.\d+\.\d+)", re.IGNORECASE),
 }
 
 
